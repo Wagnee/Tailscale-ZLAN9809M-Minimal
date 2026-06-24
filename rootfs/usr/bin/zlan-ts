@@ -1,0 +1,11 @@
+#!/bin/sh
+
+CLI="/tmp/zlan-ts-minimal/tailscale"
+SOCKET="/tmp/zlan-ts-minimal/tailscaled.sock"
+
+if [ ! -x "$CLI" ]; then
+    echo "CLI ainda nao foi baixada; verifique /tmp/zlan-ts-minimal.log" >&2
+    exit 1
+fi
+
+exec env GOMAXPROCS=1 GOMEMLIMIT=12MiB GOGC=50 "$CLI" --socket="$SOCKET" "$@"

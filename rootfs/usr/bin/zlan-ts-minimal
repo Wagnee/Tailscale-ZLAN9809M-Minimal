@@ -1,0 +1,217 @@
+#!/bin/sh
+
+CONFIG="zlan_ts_minimal.main"
+RUNTIME="/tmp/zlan-ts-minimal"
+DAEMON="$RUNTIME/tailscaled"
+CLI="$RUNTIME/tailscale"
+SOCKET="$RUNTIME/tailscaled.sock"
+STATE_DIR="/etc/tailscale"
+STATE_FILE="$STATE_DIR/tailscaled.state"
+LOG="/tmp/zlan-ts-minimal.log"
+AUTH_URL_FILE="/tmp/zlan-ts-auth-url"
+UP_OUTPUT="$RUNTIME/up.json"
+DAEMON_PID=""
+UP_PID=""
+
+uci_get() {
+    value="$(uci -q get "$CONFIG.$1" 2>/dev/null)"
+    if [ -n "$value" ]; then printf '%s' "$value"; else printf '%s' "$2"; fi
+}
+
+trim_log() {
+    size="$(wc -c < "$LOG" 2>/dev/null)"
+    if [ -n "$size" ] && [ "$size" -gt 98304 ]; then
+        tail -n 220 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+    fi
+}
+
+log() {
+    message="[zlan-ts-minimal] $*"
+    echo "$message"
+    logger -t zlan-ts-minimal "$*" 2>/dev/null || true
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$message" >> "$LOG"
+    trim_log
+}
+
+numeric_or_default() {
+    case "$1" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
+}
+
+memory_limit_or_default() {
+    case "$1" in [1-9][0-9]*MiB) printf '%s' "$1" ;; *) printf '%s' "$2" ;; esac
+}
+
+load_config() {
+    ENABLED="$(uci_get enabled 1)"
+    DAEMON_URL="$(uci_get daemon_url '')"
+    DAEMON_SHA="$(uci_get daemon_sha256 '')"
+    CLI_URL="$(uci_get cli_url '')"
+    CLI_SHA="$(uci_get cli_sha256 '')"
+    HOSTNAME_TS="$(uci_get hostname zlan9809m)"
+    ROUTES="$(uci_get routes '')"
+    AUTH_KEY="$(uci_get auth_key '')"
+    PORT="$(numeric_or_default "$(uci_get port 41641)" 41641)"
+    NETFILTER_MODE="$(uci_get netfilter_mode on)"
+    case "$NETFILTER_MODE" in on|nodivert|off) ;; *) NETFILTER_MODE="on" ;; esac
+    UP_TIMEOUT="$(numeric_or_default "$(uci_get up_timeout 20)" 20)"
+    RETRY_DELAY="$(numeric_or_default "$(uci_get retry_delay 60)" 60)"
+    START_TIMEOUT="$(numeric_or_default "$(uci_get start_timeout 90)" 90)"
+    MINIMUM_AVAILABLE_KB="$(numeric_or_default "$(uci_get minimum_available_kb 28000)" 28000)"
+    DAEMON_MEMORY_LIMIT="$(memory_limit_or_default "$(uci_get daemon_memory_limit 32MiB)" 32MiB)"
+    CLI_MEMORY_LIMIT="$(memory_limit_or_default "$(uci_get cli_memory_limit 12MiB)" 12MiB)"
+    GOGC_VALUE="$(numeric_or_default "$(uci_get gogc 50)" 50)"
+}
+
+available_memory_kb() {
+    sed -n 's/^MemAvailable:[[:space:]]*\([0-9][0-9]*\).*/\1/p' /proc/meminfo 2>/dev/null
+}
+
+valid_hash() {
+    file="$1"
+    expected="$2"
+    [ -n "$expected" ] || return 1
+    actual="$(sha256sum "$file" 2>/dev/null | sed 's/[[:space:]].*//')"
+    [ "$actual" = "$expected" ]
+}
+
+download_asset() {
+    label="$1"
+    url="$2"
+    expected="$3"
+    target="$4"
+    partial="$target.part"
+
+    if [ -f "$target" ] && valid_hash "$target" "$expected"; then
+        chmod 0755 "$target"
+        return 0
+    fi
+
+    rm -f "$target" "$partial"
+    log "baixando $label"
+    if ! wget --no-check-certificate -O "$partial" "$url"; then
+        rm -f "$partial"
+        log "falha baixando $label"
+        return 1
+    fi
+    if ! valid_hash "$partial" "$expected"; then
+        rm -f "$partial"
+        log "SHA-256 invalido para $label"
+        return 1
+    fi
+    chmod 0755 "$partial" && mv "$partial" "$target"
+}
+
+prepare_runtime() {
+    mkdir -p "$RUNTIME" "$STATE_DIR"
+    chmod 0700 "$RUNTIME" "$STATE_DIR"
+    command -v sha256sum >/dev/null 2>&1 || { log "sha256sum nao encontrado"; return 1; }
+    if [ -z "$DAEMON_URL" ] || [ -z "$CLI_URL" ]; then
+        log "URLs dos binarios nao configuradas"
+        return 1
+    fi
+    download_asset tailscaled.min "$DAEMON_URL" "$DAEMON_SHA" "$DAEMON" || return 1
+    download_asset tailscale.min "$CLI_URL" "$CLI_SHA" "$CLI" || return 1
+}
+
+start_daemon() {
+    memory="$(available_memory_kb)"
+    if [ -n "$memory" ] && [ "$memory" -lt "$MINIMUM_AVAILABLE_KB" ]; then
+        log "memoria insuficiente: ${memory} KB disponiveis"
+        return 1
+    fi
+
+    rm -f "$SOCKET"
+    echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true
+    log "iniciando tailscaled minimo (GOMEMLIMIT=$DAEMON_MEMORY_LIMIT)"
+    GOMAXPROCS=1 GOMEMLIMIT="$DAEMON_MEMORY_LIMIT" GOGC="$GOGC_VALUE" \
+        "$DAEMON" --tun=tailscale0 --state="$STATE_FILE" --statedir="$STATE_DIR" \
+        --socket="$SOCKET" --port="$PORT" --no-logs-no-support >> "$LOG" 2>&1 &
+    DAEMON_PID="$!"
+
+    elapsed=0
+    while [ "$elapsed" -lt "$START_TIMEOUT" ]; do
+        kill -0 "$DAEMON_PID" 2>/dev/null || { log "tailscaled encerrou antes do socket"; return 1; }
+        [ -S "$SOCKET" ] && return 0
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    log "timeout aguardando LocalAPI"
+    return 1
+}
+
+record_auth_url() {
+    url="$(sed -n 's/.*"AuthURL"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$UP_OUTPUT" 2>/dev/null | sed -n '1p')"
+    [ -n "$url" ] || return 0
+    [ -f "$AUTH_URL_FILE" ] && [ "$(cat "$AUTH_URL_FILE" 2>/dev/null)" = "$url" ] && return 0
+    printf '%s\n' "$url" > "$AUTH_URL_FILE"
+    chmod 0600 "$AUTH_URL_FILE"
+    log "autenticacao necessaria: $url"
+}
+
+tailscale_up() {
+    rm -f "$UP_OUTPUT" "$AUTH_URL_FILE"
+    set -- "$CLI" --socket="$SOCKET" up --reset \
+        --hostname="$HOSTNAME_TS" --accept-dns=false --accept-routes=false \
+        --timeout="${UP_TIMEOUT}s" --json
+    [ -z "$ROUTES" ] || set -- "$@" --advertise-routes="$ROUTES"
+    [ -z "$AUTH_KEY" ] || set -- "$@" --auth-key="$AUTH_KEY"
+    [ -z "$NETFILTER_MODE" ] || set -- "$@" --netfilter-mode="$NETFILTER_MODE"
+
+    log "aplicando configuracao (CLI separada, timeout ${UP_TIMEOUT}s)"
+    GOMAXPROCS=1 GOMEMLIMIT="$CLI_MEMORY_LIMIT" GOGC="$GOGC_VALUE" "$@" > "$UP_OUTPUT" 2>&1 &
+    UP_PID="$!"
+
+    while kill -0 "$UP_PID" 2>/dev/null; do
+        record_auth_url
+        if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+            log "tailscaled encerrou durante tailscale up"
+            kill "$UP_PID" 2>/dev/null || true
+            wait "$UP_PID" 2>/dev/null || true
+            UP_PID=""
+            [ ! -f "$UP_OUTPUT" ] || cat "$UP_OUTPUT" >> "$LOG"
+            return 1
+        fi
+        sleep 1
+    done
+
+    wait "$UP_PID"
+    result="$?"
+    UP_PID=""
+    record_auth_url
+    [ ! -f "$UP_OUTPUT" ] || cat "$UP_OUTPUT" >> "$LOG"
+    if [ "$result" -eq 0 ]; then
+        rm -f "$AUTH_URL_FILE"
+        log "Tailscale configurado com sucesso"
+        return 0
+    fi
+    if [ -n "$AUTH_KEY" ]; then
+        log "auth key rejeitada ou timeout de controle"
+    else
+        log "aguardando login pela URL exibida"
+    fi
+    return "$result"
+}
+
+stop_runtime() {
+    [ -z "$UP_PID" ] || kill "$UP_PID" 2>/dev/null || true
+    [ -z "$DAEMON_PID" ] || kill "$DAEMON_PID" 2>/dev/null || true
+    killall tailscaled 2>/dev/null || true
+    rm -f "$SOCKET"
+}
+
+trap 'stop_runtime; exit 0' INT TERM
+
+while true; do
+    load_config
+    if [ "$ENABLED" != "1" ]; then sleep 60; continue; fi
+    if ! prepare_runtime; then sleep "$RETRY_DELAY"; continue; fi
+    if ! start_daemon; then stop_runtime; sleep "$RETRY_DELAY"; continue; fi
+    tailscale_up || true
+    while kill -0 "$DAEMON_PID" 2>/dev/null; do sleep 60; trim_log; done
+    wait "$DAEMON_PID" 2>/dev/null
+    result="$?"
+    log "tailscaled encerrou com codigo $result"
+    dmesg 2>/dev/null | grep -i -e 'out of memory' -e 'killed process' | tail -n 4 >> "$LOG" || true
+    stop_runtime
+    sleep "$RETRY_DELAY"
+done

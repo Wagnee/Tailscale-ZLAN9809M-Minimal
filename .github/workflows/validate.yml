@@ -1,0 +1,48 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.3"
+          cache: false
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck file xz-utils
+          curl -fsSL -o /tmp/upx.tar.xz https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-amd64_linux.tar.xz
+          echo '3db5d3294707439db97866feab8d75d800f028f48481a40547411824da4288a1  /tmp/upx.tar.xz' | sha256sum -c -
+          tar -xJf /tmp/upx.tar.xz -C /tmp
+          echo "/tmp/upx-5.2.0-amd64_linux" >> "$GITHUB_PATH"
+      - name: Check shell
+        run: |
+          shellcheck -s sh install.sh uninstall.sh build/build.sh tools/*.sh rootfs/etc/init.d/* rootfs/usr/bin/*
+          dash -n install.sh uninstall.sh tools/*.sh rootfs/etc/init.d/* rootfs/usr/bin/*
+      - name: Rebuild minimal MIPS runtime
+        env:
+          UPX_BIN: upx
+        run: ./build/build.sh
+      - name: Validate artifacts
+        run: |
+          git diff --exit-code -- assets rootfs/usr/share/zlan-ts-minimal/defaults/zlan_ts_minimal
+          (cd assets && sha256sum -c SHA256SUMS)
+          (cd release && sha256sum -c zlan-ts-minimal.tar.gz.sha256)
+          file assets/tailscaled.min assets/tailscale.min | grep -E 'ELF 32-bit.*MIPS.*statically linked'
+          upx -t assets/tailscaled.min assets/tailscale.min
+          test "$(du -b assets/tailscaled.min assets/tailscale.min | awk '{s+=$1} END {print s}')" -le 6500000
+          grep -q 'ts_omit_tpm' dist/build-tags.txt
+          grep -q 'ts_omit_netstack' dist/build-tags.txt
+          ! grep -q 'ts_omit_advertiseroutes' dist/build-tags.txt
+          ! grep -R -E '(^|[[:space:]])opkg([[:space:]]|$)' install.sh rootfs
+          grep -q "option netfilter_mode 'on'" rootfs/usr/share/zlan-ts-minimal/defaults/zlan_ts_minimal
+          ! tar -tzf release/zlan-ts-minimal.tar.gz | grep -q -E 'tailscaled\.min|tailscale\.min'

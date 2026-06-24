@@ -1,0 +1,55 @@
+#!/bin/sh /etc/rc.common
+
+# shellcheck disable=SC2034
+START=95
+STOP=10
+EXTRA_COMMANDS="status"
+EXTRA_HELP="        status          Mostra o estado do Tailscale minimo"
+
+LOADER="/usr/bin/zlan-ts-minimal"
+PIDFILE="/var/run/zlan-ts-minimal.pid"
+SOCKET="/tmp/zlan-ts-minimal/tailscaled.sock"
+
+is_running() {
+    [ -f "$PIDFILE" ] || return 1
+    pid="$(sed -n '1p' "$PIDFILE" 2>/dev/null)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+start() {
+    if is_running; then echo "zlan-ts-minimal ja esta ativo"; return 0; fi
+    mkdir -p /var/run
+    "$LOADER" >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+    echo "zlan-ts-minimal iniciado"
+}
+
+stop() {
+    if is_running; then
+        pid="$(sed -n '1p' "$PIDFILE")"
+        kill "$pid" 2>/dev/null || true
+        sleep 2
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+    killall tailscaled 2>/dev/null || true
+    killall tailscale 2>/dev/null || true
+    rm -f "$PIDFILE" "$SOCKET" /tmp/zlan-ts-auth-url
+    echo "zlan-ts-minimal parado"
+}
+
+restart() { stop; sleep 2; start; }
+
+status() {
+    version="$(sed -n '1p' /usr/share/zlan-ts-minimal/VERSION 2>/dev/null)"
+    echo "versao: ${version:-desconhecida}"
+    if is_running; then echo "loader: running"; else echo "loader: stopped"; fi
+    if [ -S "$SOCKET" ]; then echo "LocalAPI: ready"; else echo "LocalAPI: unavailable"; fi
+    if [ -r /tmp/zlan-ts-auth-url ]; then
+        echo "login: necessario"
+        echo "URL: $(cat /tmp/zlan-ts-auth-url)"
+    else
+        echo "login: sem URL pendente; consulte /tmp/zlan-ts-minimal.log"
+    fi
+    echo "memoria:"
+    free 2>/dev/null || true
+}
