@@ -27,15 +27,19 @@ O binário combinado anterior expandia para aproximadamente 38,8 MB em cada proc
 ## Instalação ou atualização
 
 ```sh
-wget -4 -O /tmp/install-ts-minimal.sh \
+wget -4 --no-check-certificate -O /tmp/install-ts-minimal.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/install.sh
+echo '6258728165f49b62364bdd10ce7f456ccd5e93b56b4ecdf8d6699d189fa77a4a  /tmp/install-ts-minimal.sh' | sha256sum -c -
 sh /tmp/install-ts-minimal.sh
 ```
+
+O firmware não consegue validar a cadeia TLS atual do GitHub. O SHA-256 acima autentica o script obtido; o script contém o hash fixo do payload, e o payload contém os hashes fixos dos dois binários.
 
 O instalador:
 
 - valida o equipamento e não usa `opkg`;
 - força IPv4 nos downloads porque o firmware resolve AAAA sem possuir rota IPv6 funcional;
+- tolera a cadeia de certificados antiga do firmware e valida o payload com SHA-256 fixado no instalador;
 - preserva `/etc/tailscale/tailscaled.state`;
 - remove do overlay os componentes dos projetos híbrido/offline anteriores;
 - não grava os binários Tailscale na flash;
@@ -100,7 +104,7 @@ O relatório mostra `/rom` squashfs de 7,9 MB e overlay originalmente usando ape
 Por isso o instalador remove somente arquivos dos projetos anteriores que realmente foram gravados no overlay. Para auditar o equipamento:
 
 ```sh
-wget -4 -O /tmp/audit.sh \
+wget -4 --no-check-certificate -O /tmp/audit.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/tools/audit-storage.sh
 sh /tmp/audit.sh
 ```

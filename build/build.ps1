@@ -88,6 +88,18 @@ if ($LASTEXITCODE -ne 0) { throw "Empacotamento falhou" }
 $archiveSha = (Get-FileHash -Algorithm SHA256 $Archive).Hash.ToLowerInvariant()
 Set-Content -Encoding ascii -Path "$Archive.sha256" -Value "$archiveSha  zlan-ts-minimal.tar.gz"
 
+$Installer = Join-Path $Root "install.sh"
+$installerContent = (Get-Content -Raw $Installer) -replace "`r`n", "`n"
+$installerContent = [regex]::Replace($installerContent, "(?m)^ARCHIVE_SHA256='[^']*'", "ARCHIVE_SHA256='$archiveSha'")
+[IO.File]::WriteAllText($Installer, $installerContent, [Text.UTF8Encoding]::new($false))
+$installerSha = (Get-FileHash -Algorithm SHA256 $Installer).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText((Join-Path $Root "install.sh.sha256"), "$installerSha  install.sh`n", [Text.UTF8Encoding]::new($false))
+$Readme = Join-Path $Root "README.md"
+$readmeContent = (Get-Content -Raw $Readme) -replace "`r`n", "`n"
+$readmeContent = [regex]::Replace($readmeContent, "echo '[0-9a-f]{64}  /tmp/install-ts-minimal\.sh'", "echo '$installerSha  /tmp/install-ts-minimal.sh'")
+[IO.File]::WriteAllText($Readme, $readmeContent, [Text.UTF8Encoding]::new($false))
+
 Write-Host "tailscaled.min: $daemonSize bytes ($daemonSha)"
 Write-Host "tailscale.min:  $cliSize bytes ($cliSha)"
 Write-Host "payload:        $((Get-Item $Archive).Length) bytes ($archiveSha)"
+Write-Host "installer:      $installerSha"

@@ -63,6 +63,13 @@ tar -czf "$ARCHIVE" -C "$ROOT/rootfs" .
 ARCHIVE_SHA="$(sha256sum "$ARCHIVE" | sed 's/[[:space:]].*//')"
 printf '%s  zlan-ts-minimal.tar.gz\n' "$ARCHIVE_SHA" > "$ARCHIVE.sha256"
 
+INSTALLER="$ROOT/install.sh"
+sed -i "s/^ARCHIVE_SHA256='[^']*'/ARCHIVE_SHA256='$ARCHIVE_SHA'/" "$INSTALLER"
+INSTALLER_SHA="$(sha256sum "$INSTALLER" | sed 's/[[:space:]].*//')"
+printf '%s  install.sh\n' "$INSTALLER_SHA" > "$ROOT/install.sh.sha256"
+sed -i "s/echo '[0-9a-f][0-9a-f]*  \/tmp\/install-ts-minimal.sh'/echo '$INSTALLER_SHA  \/tmp\/install-ts-minimal.sh'/" "$ROOT/README.md"
+
 echo "tailscaled.min: $DAEMON_SIZE bytes ($DAEMON_SHA)"
 echo "tailscale.min:  $CLI_SIZE bytes ($CLI_SHA)"
 echo "payload:        $(wc -c < "$ARCHIVE") bytes ($ARCHIVE_SHA)"
+echo "installer:      $INSTALLER_SHA"

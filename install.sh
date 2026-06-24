@@ -4,10 +4,9 @@ set -u
 
 BASE_URL="${ZLAN_RELEASE_URL:-https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/release}"
 ARCHIVE_URL="$BASE_URL/zlan-ts-minimal.tar.gz"
-HASH_URL="$ARCHIVE_URL.sha256"
+ARCHIVE_SHA256='cbadfc8d622d9ac41d8ee01592e17307c8bc6eae607347de0ebfd92c1cfca57b'
 WORK="/tmp/zlan-ts-install.$$"
 ARCHIVE="$WORK/payload.tar.gz"
-HASH_FILE="$WORK/payload.sha256"
 PAYLOAD="$WORK/payload"
 NEW_CONFIG=0
 
@@ -39,7 +38,7 @@ check_hardware() {
 }
 
 verify_payload() {
-    expected="$(sed -n 's/^\([0-9a-fA-F][0-9a-fA-F]*\).*/\1/p' "$HASH_FILE" | sed -n '1p' | tr 'A-F' 'a-f')"
+    expected="$(printf '%s' "$ARCHIVE_SHA256" | tr 'A-F' 'a-f')"
     actual="$(sha256sum "$ARCHIVE" | sed 's/[[:space:]].*//' | tr 'A-F' 'a-f')"
     [ "${#expected}" = "64" ] || fail "manifesto SHA-256 invalido"
     [ "$actual" = "$expected" ] || fail "SHA-256 do payload nao confere"
@@ -204,8 +203,7 @@ echo " Tailscale ZLAN9809M Minimal"
 echo "=========================================="
 check_hardware
 mkdir -p "$WORK" "$PAYLOAD"
-wget -4 -O "$ARCHIVE" "$ARCHIVE_URL" || fail "download IPv4 do payload falhou"
-wget -4 -O "$HASH_FILE" "$HASH_URL" || fail "download IPv4 do hash falhou"
+wget -4 --no-check-certificate -O "$ARCHIVE" "$ARCHIVE_URL" || fail "download IPv4 do payload falhou"
 verify_payload
 tar -xzf "$ARCHIVE" -C "$PAYLOAD" || fail "payload corrompido"
 [ -f "$PAYLOAD/usr/bin/zlan-ts-minimal" ] || fail "payload incompleto"

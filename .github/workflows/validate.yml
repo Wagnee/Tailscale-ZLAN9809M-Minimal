@@ -28,6 +28,11 @@ jobs:
         run: |
           shellcheck -s sh install.sh uninstall.sh build/build.sh tools/*.sh rootfs/etc/init.d/* rootfs/usr/bin/*
           dash -n install.sh uninstall.sh tools/*.sh rootfs/etc/init.d/* rootfs/usr/bin/*
+      - name: Validate published trust chain
+        run: |
+          archive_sha="$(sed -n "s/^ARCHIVE_SHA256='\([^']*\)'/\1/p" install.sh)"
+          echo "$archive_sha  release/zlan-ts-minimal.tar.gz" | sha256sum -c -
+          sha256sum -c install.sh.sha256
       - name: Rebuild minimal MIPS runtime
         env:
           UPX_BIN: upx
@@ -37,6 +42,9 @@ jobs:
           git diff --exit-code -- assets rootfs/usr/share/zlan-ts-minimal/defaults/zlan_ts_minimal
           (cd assets && sha256sum -c SHA256SUMS)
           (cd release && sha256sum -c zlan-ts-minimal.tar.gz.sha256)
+          archive_sha="$(sed -n "s/^ARCHIVE_SHA256='\([^']*\)'/\1/p" install.sh)"
+          echo "$archive_sha  release/zlan-ts-minimal.tar.gz" | sha256sum -c -
+          sha256sum -c install.sh.sha256
           file assets/tailscaled.min assets/tailscale.min | grep -E 'ELF 32-bit.*MIPS.*statically linked'
           upx -t assets/tailscaled.min assets/tailscale.min
           test "$(du -b assets/tailscaled.min assets/tailscale.min | awk '{s+=$1} END {print s}')" -le 6500000
@@ -46,5 +54,7 @@ jobs:
           ! grep -q 'ts_omit_unixsocketidentity' dist/build-tags.txt
           ! grep -R -E '(^|[[:space:]])opkg([[:space:]]|$)' install.sh rootfs
           ! grep -R -E 'wget([[:space:]]+--no-check-certificate|[[:space:]]+-O)' install.sh rootfs
+          grep -q 'wget -4 --no-check-certificate -O' install.sh
+          grep -q 'wget -4 --no-check-certificate -O' rootfs/usr/bin/zlan-ts-minimal
           grep -q "option netfilter_mode 'on'" rootfs/usr/share/zlan-ts-minimal/defaults/zlan_ts_minimal
           ! tar -tzf release/zlan-ts-minimal.tar.gz | grep -q -E 'tailscaled\.min|tailscale\.min'

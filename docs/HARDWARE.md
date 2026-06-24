@@ -12,6 +12,7 @@
 - swap: inexistente;
 - TUN: integrado e disponível em `/dev/net/tun`.
 - WAN: IPv4 funcional; o firmware pode resolver endereços IPv6 mesmo sem rota IPv6 utilizável.
+- TLS: a cadeia de certificados embarcada pode rejeitar o certificado atual do GitHub; os downloads usam hashes fixos para manter a verificação de integridade.
 
 ## Armazenamento
 
