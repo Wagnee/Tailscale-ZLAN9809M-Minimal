@@ -6,7 +6,9 @@ PURGE=0
 
 /etc/init.d/zlan-ts-minimal stop 2>/dev/null || true
 /etc/init.d/zlan-ts-minimal disable 2>/dev/null || true
-rm -f /etc/init.d/zlan-ts-minimal /usr/bin/zlan-ts-minimal /usr/bin/zlan-ts
+/usr/bin/zlan-ts-mwan3 remove >/dev/null 2>&1 || true
+rm -f /etc/init.d/zlan-ts-minimal /usr/bin/zlan-ts-minimal /usr/bin/zlan-ts /usr/bin/zlan-ts-mwan3
+rm -f /etc/hotplug.d/iface/95-zlan-ts-mwan3
 rm -rf /usr/share/zlan-ts-minimal /tmp/zlan-ts-minimal
 rm -f /tmp/zlan-ts-minimal.log /tmp/zlan-ts-auth-url
 rm -f /etc/sysctl.d/99-zlan-ts-minimal.conf

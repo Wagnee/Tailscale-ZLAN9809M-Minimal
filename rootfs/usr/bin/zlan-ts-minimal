@@ -12,6 +12,7 @@ AUTH_URL_FILE="/tmp/zlan-ts-auth-url"
 UP_OUTPUT="$RUNTIME/up.json"
 DAEMON_PID=""
 UP_PID=""
+MWAN_LAST_MESSAGE=""
 
 uci_get() {
     value="$(uci -q get "$CONFIG.$1" 2>/dev/null)"
@@ -60,6 +61,17 @@ load_config() {
     DAEMON_MEMORY_LIMIT="$(memory_limit_or_default "$(uci_get daemon_memory_limit 32MiB)" 32MiB)"
     CLI_MEMORY_LIMIT="$(memory_limit_or_default "$(uci_get cli_memory_limit 12MiB)" 12MiB)"
     GOGC_VALUE="$(numeric_or_default "$(uci_get gogc 50)" 50)"
+    MWAN3_CHECK_INTERVAL="$(numeric_or_default "$(uci_get mwan3_check_interval 15)" 15)"
+    if [ "$MWAN3_CHECK_INTERVAL" -lt 5 ]; then MWAN3_CHECK_INTERVAL=15; fi
+}
+
+sync_mwan3() {
+    [ -x /usr/bin/zlan-ts-mwan3 ] || return 0
+    message="$(/usr/bin/zlan-ts-mwan3 sync 2>&1)"
+    if [ -n "$message" ] && [ "$message" != "$MWAN_LAST_MESSAGE" ]; then
+        log "mwan3: $message"
+    fi
+    MWAN_LAST_MESSAGE="$message"
 }
 
 available_memory_kb() {
@@ -197,6 +209,7 @@ stop_runtime() {
     [ -z "$DAEMON_PID" ] || kill "$DAEMON_PID" 2>/dev/null || true
     killall tailscaled 2>/dev/null || true
     rm -f "$SOCKET"
+    /usr/bin/zlan-ts-mwan3 remove >/dev/null 2>&1 || true
 }
 
 trap 'stop_runtime; exit 0' INT TERM
@@ -205,9 +218,15 @@ while true; do
     load_config
     if [ "$ENABLED" != "1" ]; then sleep 60; continue; fi
     if ! prepare_runtime; then sleep "$RETRY_DELAY"; continue; fi
+    sync_mwan3
     if ! start_daemon; then stop_runtime; sleep "$RETRY_DELAY"; continue; fi
+    sync_mwan3
     tailscale_up || true
-    while kill -0 "$DAEMON_PID" 2>/dev/null; do sleep 60; trim_log; done
+    while kill -0 "$DAEMON_PID" 2>/dev/null; do
+        sleep "$MWAN3_CHECK_INTERVAL"
+        sync_mwan3
+        trim_log
+    done
     wait "$DAEMON_PID" 2>/dev/null
     result="$?"
     log "tailscaled encerrou com codigo $result"

@@ -33,6 +33,7 @@ stop() {
     fi
     killall tailscaled 2>/dev/null || true
     killall tailscale 2>/dev/null || true
+    /usr/bin/zlan-ts-mwan3 remove >/dev/null 2>&1 || true
     rm -f "$PIDFILE" "$SOCKET" /tmp/zlan-ts-auth-url
     echo "zlan-ts-minimal parado"
 }
@@ -50,6 +51,7 @@ status() {
     else
         echo "login: sem URL pendente; consulte /tmp/zlan-ts-minimal.log"
     fi
+    [ ! -x /usr/bin/zlan-ts-mwan3 ] || /usr/bin/zlan-ts-mwan3 status
     echo "memoria:"
     free 2>/dev/null || true
 }

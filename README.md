@@ -29,7 +29,7 @@ O binário combinado anterior expandia para aproximadamente 38,8 MB em cada proc
 ```sh
 wget -4 --no-check-certificate -O /tmp/install-ts-minimal.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/install.sh
-echo 'f8051b13a9a661fd5a111f78d53a3563487cb239378c4e42bcfc36f3af9c1a99  /tmp/install-ts-minimal.sh' | sha256sum -c -
+echo '02f4ef541ddcda9c285dc5b883840b6c0c96b67aa64d2de16f7e71dfb6a4174c  /tmp/install-ts-minimal.sh' | sha256sum -c -
 sh /tmp/install-ts-minimal.sh
 ```
 
@@ -46,6 +46,7 @@ O instalador:
 - detecta automaticamente uma LAN `/24` pelo UCI;
 - baixa daemon e CLI separadamente para `/tmp`, com SHA-256 fixado;
 - limita o heap do daemon a 32 MiB e o da CLI a 12 MiB;
+- monitora o `mwan3` e corrige automaticamente a rota do Tailscale quando somente o 4G está online;
 - habilita `net.ipv4.ip_forward` e inicia o serviço.
 
 Se a auth key não for informada durante a instalação, obtenha a URL de login com:
@@ -83,6 +84,23 @@ tail -f /tmp/zlan-ts-minimal.log
 free
 df -h /overlay /tmp
 ```
+
+## Failover WAN/4G
+
+O firmware mantém a rota da WAN Ethernet desconectada na tabela principal. Como o fwmark do Tailscale consulta essa tabela antes das regras do `mwan3`, o controle e os DERPs ficavam inacessíveis quando somente o 4G estava online.
+
+A versão 0.2.0 monitora `wan` e `wan_4g`. Quando a WAN fica offline e o 4G está online, instala uma regra exclusiva para o fwmark do Tailscale apontando para a tabela 2. Quando a WAN volta, remove a regra. Hotplug e uma verificação a cada 15 segundos tornam a troca automática.
+
+```sh
+/usr/bin/zlan-ts-mwan3 status
+ip -4 rule show
+```
+
+Detalhes técnicos, configuração e rollback estão em [docs/FAILOVER_4G.md](docs/FAILOVER_4G.md).
+
+## Reboot e factory reset
+
+Reboot ou queda de energia preservam configuração e identidade; os binários são baixados novamente para `/tmp`. Um factory reset pelo botão apaga o `/overlay`, portanto remove o projeto e a identidade Tailscale. Sobreviver a esse reset exige firmware customizado com o bootstrap em `/rom` ou um mecanismo persistente oficialmente suportado pelo fabricante. Não é seguro usar partições MTD reservadas sem documentação do ZLAN.
 
 ## Features mantidas
 
@@ -122,7 +140,7 @@ Os scripts em `build/` fixam:
 - UPX 5.2.0;
 - orçamento máximo de 6,5 MB para os dois arquivos dinâmicos.
 
-Consulte [docs/HARDWARE.md](docs/HARDWARE.md), [docs/BUILD.md](docs/BUILD.md), [docs/TRIMMING.md](docs/TRIMMING.md) e o [histórico completo da investigação](docs/CONVERSATION_HISTORY.md).
+Consulte [docs/HARDWARE.md](docs/HARDWARE.md), [docs/BUILD.md](docs/BUILD.md), [docs/TRIMMING.md](docs/TRIMMING.md), [docs/FAILOVER_4G.md](docs/FAILOVER_4G.md) e o [histórico completo da investigação](docs/CONVERSATION_HISTORY.md).
 
 ## Licença
 

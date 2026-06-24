@@ -439,3 +439,54 @@ Verificação do autostart:
 - auth keys registradas neste documento: nenhuma;
 - configuração recomendada: autenticação interativa por URL;
 - segredos persistentes: somente o estado criptográfico normal do Tailscale em `/etc/tailscale/tailscaled.state` no equipamento.
+
+## 13. Falha quando somente o 4G estava conectado
+
+Depois de confirmar o funcionamento pela WAN Ethernet, o usuário informou que o Tailscale parava de conectar quando a internet vinha exclusivamente do modem 4G. Um novo probe foi executado com o cabo WAN removido.
+
+Os logs demonstraram simultaneamente:
+
+- `wan` offline e `wan_4g` online no `mwan3`;
+- ping IPv4 e download HTTPS funcionando pelo 4G;
+- default route da Ethernet ainda presente na tabela `main` com métrica 1;
+- default route do `usb0` presente na tabela 2 e na `main` com métrica 2;
+- tentativas IPv4 do controle/DERP do Tailscale expirando;
+- netcheck sem UDP, IPv4 ou região DERP disponível.
+
+As regras relevantes eram:
+
+```text
+1310: from all fwmark 0x80000/0xff0000 lookup main
+1330: from all fwmark 0x80000/0xff0000 lookup default
+1350: from all fwmark 0x80000/0xff0000 unreachable
+2002: from all fwmark 0x200/0x3f00 lookup 2
+```
+
+O Tailscale detecta `mwan3` no OpenWrt e desloca suas regras para a faixa 1300. Entretanto seu fwmark consultava a tabela principal na prioridade 1310, antes da regra 2002 do `mwan3`, e escolhia a WAN Ethernet inativa.
+
+A correção temporária abaixo foi aplicada e o usuário confirmou que funcionou:
+
+```sh
+ip -4 rule add pref 1305 fwmark 0x80000/0xff0000 lookup 2
+ip route flush cache
+```
+
+## 14. Versão 0.2.0 — failover WAN/4G automático
+
+A correção confirmada foi incorporada de forma dinâmica e idempotente:
+
+- helper `/usr/bin/zlan-ts-mwan3`;
+- regra instalada somente quando `wan` está offline, `wan_4g` online e a tabela 2 possui default route;
+- remoção automática quando a WAN retorna ou o 4G deixa de estar utilizável;
+- proteção contra conflito na prioridade 1305;
+- monitoramento a cada 15 segundos;
+- sincronização por hotplug de interface;
+- status integrado ao init script;
+- testes de regressão com WAN, 4G, idempotência e conflito de prioridade.
+
+Também foi esclarecida a diferença de persistência:
+
+- reboot e queda de energia preservam `/overlay` e a identidade;
+- factory reset apaga o overlay e restaura `/rom`;
+- sobreviver a factory reset requer firmware customizado ou suporte persistente documentado pelo fabricante;
+- partições MTD reservadas não devem ser usadas sem documentação e método de recuperação.

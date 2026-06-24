@@ -1,0 +1,116 @@
+#!/bin/sh
+
+CONFIG="zlan_ts_minimal.main"
+MARK="0x80000/0xff0000"
+IP_BIN="${ZLAN_IP_BIN:-ip}"
+MWAN3_BIN="${ZLAN_MWAN3_BIN:-mwan3}"
+UCI_BIN="${ZLAN_UCI_BIN:-uci}"
+
+uci_get() {
+    value="$("$UCI_BIN" -q get "$CONFIG.$1" 2>/dev/null)"
+    if [ -n "$value" ]; then printf '%s' "$value"; else printf '%s' "$2"; fi
+}
+
+numeric_or_default() {
+    case "$1" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
+}
+
+load_config() {
+    ENABLED="$(uci_get mwan3_failover 1)"
+    RULE_PREF="$(numeric_or_default "$(uci_get mwan3_rule_pref 1305)" 1305)"
+    RULE_TABLE="$(numeric_or_default "$(uci_get mwan3_4g_table 2)" 2)"
+    WAN_INTERFACE="$(uci_get mwan3_wan_interface wan)"
+    MOBILE_INTERFACE="$(uci_get mwan3_4g_interface wan_4g)"
+    if [ "$RULE_PREF" -lt 1 ] || [ "$RULE_PREF" -gt 32765 ]; then RULE_PREF=1305; fi
+    if [ "$RULE_TABLE" -lt 1 ] || [ "$RULE_TABLE" -gt 252 ]; then RULE_TABLE=2; fi
+}
+
+rule_lines() {
+    "$IP_BIN" -4 rule show 2>/dev/null | sed -n "/^${RULE_PREF}:/p"
+}
+
+has_managed_rule() {
+    rule_lines | grep -F "fwmark $MARK lookup $RULE_TABLE" >/dev/null 2>&1
+}
+
+conflicting_rules() {
+    rule_lines | grep -F -v "fwmark $MARK lookup $RULE_TABLE" 2>/dev/null
+}
+
+remove_managed_rule() {
+    changed=0
+    while has_managed_rule; do
+        if ! "$IP_BIN" -4 rule del pref "$RULE_PREF" fwmark "$MARK" lookup "$RULE_TABLE" 2>/dev/null; then
+            echo "warning:falha-removendo-regra-$RULE_PREF"
+            return 1
+        fi
+        changed=1
+    done
+    if [ "$changed" = "1" ]; then
+        "$IP_BIN" route flush cache 2>/dev/null || true
+        echo "changed:regra-$RULE_PREF-removida"
+    fi
+}
+
+interface_is_online() {
+    printf '%s\n' "$MWAN_STATUS" | grep -F " interface $1 is online " >/dev/null 2>&1
+}
+
+table_has_default() {
+    "$IP_BIN" -4 route show table "$RULE_TABLE" 2>/dev/null | grep -q '^default '
+}
+
+sync_rule() {
+    if [ "$ENABLED" != "1" ]; then
+        remove_managed_rule
+        return
+    fi
+    if ! command -v "$IP_BIN" >/dev/null 2>&1 || ! command -v "$MWAN3_BIN" >/dev/null 2>&1; then
+        remove_managed_rule
+        echo "warning:ip-ou-mwan3-indisponivel"
+        return 1
+    fi
+
+    MWAN_STATUS="$("$MWAN3_BIN" status 2>&1)"
+    if interface_is_online "$WAN_INTERFACE"; then
+        remove_managed_rule
+        return
+    fi
+    if ! interface_is_online "$MOBILE_INTERFACE" || ! table_has_default; then
+        remove_managed_rule
+        return
+    fi
+    if [ -n "$(conflicting_rules)" ]; then
+        echo "warning:prioridade-$RULE_PREF-ocupada"
+        return 1
+    fi
+    if ! has_managed_rule; then
+        if ! "$IP_BIN" -4 rule add pref "$RULE_PREF" fwmark "$MARK" lookup "$RULE_TABLE" 2>/dev/null; then
+            echo "warning:falha-adicionando-regra-$RULE_PREF"
+            return 1
+        fi
+        "$IP_BIN" route flush cache 2>/dev/null || true
+        echo "changed:4g-ativo-regra-$RULE_PREF-tabela-$RULE_TABLE"
+    fi
+}
+
+show_status() {
+    echo "failover mwan3: $ENABLED"
+    echo "regra: pref $RULE_PREF fwmark $MARK lookup $RULE_TABLE"
+    if ! command -v "$MWAN3_BIN" >/dev/null 2>&1; then
+        echo "mwan3: indisponivel"
+        return
+    fi
+    MWAN_STATUS="$("$MWAN3_BIN" status 2>&1)"
+    if interface_is_online "$WAN_INTERFACE"; then echo "wan: online"; else echo "wan: offline"; fi
+    if interface_is_online "$MOBILE_INTERFACE"; then echo "4g: online"; else echo "4g: offline"; fi
+    if has_managed_rule; then echo "override Tailscale: ativo"; else echo "override Tailscale: inativo"; fi
+}
+
+load_config
+case "${1:-sync}" in
+    sync) sync_rule ;;
+    remove) remove_managed_rule ;;
+    status) show_status ;;
+    *) echo "Uso: $0 {sync|remove|status}" >&2; exit 2 ;;
+esac

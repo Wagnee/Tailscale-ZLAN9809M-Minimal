@@ -4,7 +4,7 @@ set -u
 
 BASE_URL="${ZLAN_RELEASE_URL:-https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/release}"
 ARCHIVE_URL="$BASE_URL/zlan-ts-minimal.tar.gz"
-ARCHIVE_SHA256='e33125e63acdea5ce715f5f5090c67292cf75d621b7e5702e8619f2c7b1ff77d'
+ARCHIVE_SHA256='c1148c6bbb7b8abdb1418a19ca1a734565485b43872f318321d16af54d656a63'
 WORK="/tmp/zlan-ts-install.$$"
 ARCHIVE="$WORK/payload.tar.gz"
 PAYLOAD="$WORK/payload"
@@ -24,7 +24,7 @@ check_hardware() {
     [ "$(release_value DISTRIB_TARGET)" = "ramips/mt76x8" ] || fail "requer target ramips/mt76x8"
     grep -qi -e 'MT7628' -e 'MIPS 24KEc' /proc/cpuinfo || fail "CPU MT7628/MIPS 24KEc nao detectada"
     [ -c /dev/net/tun ] || fail "/dev/net/tun nao existe"
-    for command in wget sha256sum tar uci; do
+    for command in wget sha256sum tar uci ip mwan3; do
         command -v "$command" >/dev/null 2>&1 || fail "$command nao encontrado"
     done
     memory="$(sed -n 's/^MemTotal:[[:space:]]*\([0-9][0-9]*\).*/\1/p' /proc/meminfo)"
@@ -174,6 +174,12 @@ install_config() {
         value="$(default_option "$field")"
         uci set "zlan_ts_minimal.main.$field=$value"
     done
+    for field in mwan3_failover mwan3_rule_pref mwan3_4g_table mwan3_wan_interface mwan3_4g_interface mwan3_check_interval; do
+        if [ -z "$(uci -q get "zlan_ts_minimal.main.$field" 2>/dev/null)" ]; then
+            value="$(default_option "$field")"
+            uci set "zlan_ts_minimal.main.$field=$value"
+        fi
+    done
     detect_lan_route
     uci commit zlan_ts_minimal
     chmod 0600 /etc/config/zlan_ts_minimal
@@ -211,7 +217,8 @@ tar -xzf "$ARCHIVE" -C "$PAYLOAD" || fail "payload corrompido"
 stop_legacy
 remove_legacy_overlay
 cp -R "$PAYLOAD"/. / || fail "falha copiando payload"
-chmod 0755 /usr/bin/zlan-ts-minimal /usr/bin/zlan-ts /etc/init.d/zlan-ts-minimal
+chmod 0755 /usr/bin/zlan-ts-minimal /usr/bin/zlan-ts /usr/bin/zlan-ts-mwan3 \
+    /etc/init.d/zlan-ts-minimal /etc/hotplug.d/iface/95-zlan-ts-mwan3
 find /usr/share/zlan-ts-minimal -type d -exec chmod 0755 {} \;
 find /usr/share/zlan-ts-minimal -type f -exec chmod 0644 {} \;
 install_config

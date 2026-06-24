@@ -1,0 +1,4 @@
+#!/bin/sh
+
+[ -x /usr/bin/zlan-ts-mwan3 ] || exit 0
+/usr/bin/zlan-ts-mwan3 sync >/dev/null 2>&1 || true
