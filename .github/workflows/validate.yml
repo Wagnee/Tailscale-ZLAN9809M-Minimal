@@ -19,7 +19,7 @@ jobs:
       - name: Install validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck file xz-utils
+          sudo apt-get install -y shellcheck file xz-utils lua5.1
           curl -fsSL -o /tmp/upx.tar.xz https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-amd64_linux.tar.xz
           echo '3db5d3294707439db97866feab8d75d800f028f48481a40547411824da4288a1  /tmp/upx.tar.xz' | sha256sum -c -
           tar -xJf /tmp/upx.tar.xz -C /tmp
@@ -29,6 +29,8 @@ jobs:
           shellcheck -s sh install.sh uninstall.sh build/build.sh tools/*.sh tests/*.sh rootfs/etc/init.d/* rootfs/etc/hotplug.d/iface/* rootfs/usr/bin/*
           dash -n install.sh uninstall.sh tools/*.sh tests/*.sh rootfs/etc/init.d/* rootfs/etc/hotplug.d/iface/* rootfs/usr/bin/*
           ./tests/test-mwan3-failover.sh
+          luac5.1 -p rootfs/usr/lib/lua/luci/controller/*.lua
+          python3 tests/check-luci-template.py rootfs/usr/lib/lua/luci/view/zlan_tailscale/status.htm
       - name: Validate published trust chain
         run: |
           archive_sha="$(sed -n "s/^ARCHIVE_SHA256='\([^']*\)'/\1/p" install.sh)"

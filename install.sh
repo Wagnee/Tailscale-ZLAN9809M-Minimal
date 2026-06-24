@@ -4,7 +4,7 @@ set -u
 
 BASE_URL="${ZLAN_RELEASE_URL:-https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/release}"
 ARCHIVE_URL="$BASE_URL/zlan-ts-minimal.tar.gz"
-ARCHIVE_SHA256='c1148c6bbb7b8abdb1418a19ca1a734565485b43872f318321d16af54d656a63'
+ARCHIVE_SHA256='c93aa7f80981aba2d4c13336b789e1eef4bfbe075d834723a95748860e5a6d2e'
 WORK="/tmp/zlan-ts-install.$$"
 ARCHIVE="$WORK/payload.tar.gz"
 PAYLOAD="$WORK/payload"
@@ -213,12 +213,16 @@ wget -4 --no-check-certificate -O "$ARCHIVE" "$ARCHIVE_URL" || fail "download IP
 verify_payload
 tar -xzf "$ARCHIVE" -C "$PAYLOAD" || fail "payload corrompido"
 [ -f "$PAYLOAD/usr/bin/zlan-ts-minimal" ] || fail "payload incompleto"
+[ -f "$PAYLOAD/usr/lib/lua/luci/controller/zlan_tailscale.lua" ] || fail "controller LuCI ausente"
+[ -f "$PAYLOAD/usr/lib/lua/luci/view/zlan_tailscale/status.htm" ] || fail "view LuCI ausente"
 
 stop_legacy
 remove_legacy_overlay
 cp -R "$PAYLOAD"/. / || fail "falha copiando payload"
 chmod 0755 /usr/bin/zlan-ts-minimal /usr/bin/zlan-ts /usr/bin/zlan-ts-mwan3 \
     /etc/init.d/zlan-ts-minimal /etc/hotplug.d/iface/95-zlan-ts-mwan3
+chmod 0644 /usr/lib/lua/luci/controller/zlan_tailscale.lua \
+    /usr/lib/lua/luci/view/zlan_tailscale/status.htm
 find /usr/share/zlan-ts-minimal -type d -exec chmod 0755 {} \;
 find /usr/share/zlan-ts-minimal -type f -exec chmod 0644 {} \;
 install_config
@@ -226,6 +230,7 @@ interactive_config
 remove_overlay_file /etc/config/zlan_tailscale /etc/config/tailscale
 remove_overlay_file /etc/config/modbus /etc/config/mqtt
 rm -f /tmp/luci-indexcache
+rm -rf /tmp/luci-modulecache
 
 mkdir -p /etc/sysctl.d
 printf '%s\n' 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-zlan-ts-minimal.conf
@@ -237,3 +242,4 @@ echo "Instalacao concluida."
 echo "Status: /etc/init.d/zlan-ts-minimal status"
 echo "Log: tail -f /tmp/zlan-ts-minimal.log"
 echo "Config: /etc/config/zlan_ts_minimal"
+echo "LuCI: Servicos > Tailscale"

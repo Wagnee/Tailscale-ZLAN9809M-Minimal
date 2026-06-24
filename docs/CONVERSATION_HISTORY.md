@@ -490,3 +490,21 @@ Também foi esclarecida a diferença de persistência:
 - factory reset apaga o overlay e restaura `/rom`;
 - sobreviver a factory reset requer firmware customizado ou suporte persistente documentado pelo fabricante;
 - partições MTD reservadas não devem ser usadas sem documentação e método de recuperação.
+
+## 15. Versão 0.3.0 — painel LuCI do Tailscale
+
+Depois de validar o retorno automático do 4G para a WAN, o usuário pediu um menu chamado **Tailscale** na interface web para acompanhar a operação sem depender do SSH.
+
+Foi criado um painel somente leitura em **Serviços → Tailscale**. Ele consulta a LocalAPI uma única vez ao carregar a página e mostra:
+
+- estado do backend e versões;
+- IP Tailscale, hostname, DNS e nome da tailnet;
+- rota anunciada configurada no UCI;
+- saída de internet atual pela WAN ou pelo 4G;
+- quantidade de peers online, ativos e conhecidos;
+- tabela de peers com IP, sistema operacional e conexão direta/DERP;
+- autenticação pendente, memória, diagnóstico do serviço/failover e log recente.
+
+Nenhum novo daemon foi adicionado. A CLI temporária já existente executa apenas durante a consulta da página e permanece sujeita ao limite de memória configurado. O painel não permite alterar configuração, iniciar ou parar serviços, reduzindo a superfície de erro e mantendo o SSH/UCI como caminho administrativo.
+
+O CI passou a validar o controller com Lua 5.1 e a sintaxe dos blocos Lua do template LuCI, correspondente à geração usada pelo OpenWrt 21.02.

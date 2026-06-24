@@ -1,0 +1,268 @@
+<%+header%>
+
+<%
+local sys = require "luci.sys"
+local util = require "luci.util"
+local fs = require "nixio.fs"
+local uci = require("luci.model.uci").cursor()
+
+local SOCKET = "/tmp/zlan-ts-minimal/tailscaled.sock"
+local CLI = "/tmp/zlan-ts-minimal/tailscale"
+local LOG = "/tmp/zlan-ts-minimal.log"
+
+local function esc(value)
+    return util.pcdata(tostring(value or ""))
+end
+
+local function nonempty(value, fallback)
+    if value and value ~= "" then return value end
+    return fallback
+end
+
+local function trim(value)
+    value = value or ""
+    return value:match("^%s*(.-)%s*$") or ""
+end
+
+local function decode_json(value)
+    local ok, jsonc = pcall(require, "luci.jsonc")
+    if ok and jsonc and jsonc.parse then
+        local parsed_ok, parsed = pcall(jsonc.parse, value)
+        if parsed_ok and type(parsed) == "table" then return parsed end
+    end
+
+    local legacy_ok, json = pcall(require, "luci.json")
+    if legacy_ok and json then
+        local decoder = json.decode or json.parse
+        if decoder then
+            local parsed_ok, parsed = pcall(decoder, value)
+            if parsed_ok and type(parsed) == "table" then return parsed end
+        end
+    end
+end
+
+local function join_values(values)
+    if type(values) ~= "table" then return "" end
+    local result = {}
+    for _, value in ipairs(values) do
+        result[#result + 1] = tostring(value)
+    end
+    return table.concat(result, ", ")
+end
+
+local socket_stat = fs.stat(SOCKET)
+local socket_ready = socket_stat and (socket_stat.type == "sock" or socket_stat.type == "socket")
+local raw_status = ""
+local status
+
+if socket_ready and fs.access(CLI) then
+    raw_status = sys.exec("/usr/bin/zlan-ts status --json 2>/dev/null")
+    status = decode_json(raw_status)
+end
+
+local self_status = status and status.Self or {}
+local configured_name = uci:get("zlan_ts_minimal", "main", "hostname") or "zlan9809m"
+local advertised_routes = uci:get("zlan_ts_minimal", "main", "routes") or ""
+local project_version = trim(fs.readfile("/usr/share/zlan-ts-minimal/VERSION"))
+local auth_url = trim(fs.readfile("/tmp/zlan-ts-auth-url"))
+
+local backend_state = status and status.BackendState or "Unavailable"
+local state_labels = {
+    Running = "Conectado",
+    NeedsLogin = "Aguardando autenticação",
+    Stopped = "Parado",
+    Starting = "Iniciando",
+    NoState = "Sem estado"
+}
+local state_label = state_labels[backend_state] or backend_state
+if not status and auth_url ~= "" then state_label = "Aguardando autenticação" end
+if not socket_ready then state_label = "Serviço indisponível" end
+
+local tailscale_ips = status and status.TailscaleIPs or self_status.TailscaleIPs
+local tailscale_ip = nonempty(join_values(tailscale_ips), "Não disponível")
+local device_name = nonempty(self_status.HostName, configured_name)
+local dns_name = nonempty(self_status.DNSName, "Não disponível"):gsub("%.$", "")
+local tailnet = status and status.CurrentTailnet or {}
+local tailnet_name = nonempty(tailnet.Name, nonempty(status and status.MagicDNSSuffix, "Não disponível"))
+
+local peers = {}
+local online_peers = 0
+local active_peers = 0
+for _, peer in pairs(status and status.Peer or {}) do
+    peers[#peers + 1] = peer
+    if peer.Online or peer.Active then online_peers = online_peers + 1 end
+    if peer.Active then active_peers = active_peers + 1 end
+end
+table.sort(peers, function(a, b)
+    return string.lower(a.HostName or a.DNSName or "") < string.lower(b.HostName or b.DNSName or "")
+end)
+
+local route_status = ""
+if fs.access("/usr/bin/zlan-ts-mwan3") then
+    route_status = sys.exec("/usr/bin/zlan-ts-mwan3 status 2>&1")
+end
+local wan_online = route_status:find("wan: online", 1, true) ~= nil
+local mobile_online = route_status:find("4g: online", 1, true) ~= nil
+local override_active = route_status:find("override Tailscale: ativo", 1, true) ~= nil
+local internet_path
+if override_active then
+    internet_path = "4G (wan_4g / tabela 2)"
+elseif wan_online then
+    internet_path = "WAN (cabo de rede)"
+elseif mobile_online then
+    internet_path = "4G detectado; aguardando sincronização"
+else
+    internet_path = "Nenhuma saída online detectada"
+end
+
+local service_status = nonempty(
+    sys.exec("/etc/init.d/zlan-ts-minimal status 2>&1"),
+    "Serviço sem saída de status."
+)
+local logs = fs.access(LOG) and nonempty(
+    sys.exec("tail -n 60 /tmp/zlan-ts-minimal.log 2>&1"),
+    "O log está vazio."
+) or "O log ainda não existe."
+local memory = nonempty(sys.exec("free 2>&1"), "Memória indisponível.")
+
+local function peer_name(peer)
+    local name = nonempty(peer.HostName, peer.DNSName or "Desconhecido")
+    return name:gsub("%.$", "")
+end
+
+local function peer_state(peer)
+    if peer.Online then return "Online" end
+    if peer.Active then return "Ativo" end
+    return "Offline"
+end
+
+local function peer_transport(peer)
+    if peer.CurAddr and peer.CurAddr ~= "" then return "Direto: " .. peer.CurAddr end
+    if peer.Relay and peer.Relay ~= "" then return "DERP: " .. peer.Relay end
+    return "—"
+end
+%>
+
+<style type="text/css">
+.zts-toolbar { margin: 1em 0; }
+.zts-grid { display: flex; flex-wrap: wrap; gap: 1em; margin: 1em 0; }
+.zts-card { box-sizing: border-box; flex: 1 1 17em; min-width: 0; border: 1px solid #d8d8d8; background: #fff; padding: 1em; }
+.zts-card h3 { margin: 0 0 0.5em; font-size: 1em; color: #555; }
+.zts-value { font-size: 1.25em; font-weight: bold; overflow-wrap: anywhere; }
+.zts-detail { color: #666; margin-top: 0.4em; }
+.zts-table-wrap { overflow-x: auto; }
+.zts-table { width: 100%; border-collapse: collapse; }
+.zts-table th, .zts-table td { padding: 0.55em; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
+.zts-online { color: #167c2f; font-weight: bold; }
+.zts-offline { color: #777; }
+.zts-diagnostics pre { box-sizing: border-box; max-height: 20em; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 0.8em; }
+.zts-auth { padding: 0.8em; margin: 1em 0; border: 1px solid #e7b416; background: #fff8df; overflow-wrap: anywhere; }
+</style>
+
+<h2>Tailscale</h2>
+<p>Status do subnet router ZLAN9809M. A página executa uma única consulta local ao ser carregada e não mantém processos adicionais.</p>
+
+<div class="zts-toolbar">
+    <a class="cbi-button cbi-button-reload" href="<%=url('admin/services/zlan_tailscale')%>">Atualizar</a>
+</div>
+
+<% if auth_url ~= "" then %>
+<div class="zts-auth">
+    <strong>Autenticação necessária:</strong>
+    <a href="<%=esc(auth_url)%>" target="_blank" rel="noreferrer"><%=esc(auth_url)%></a>
+</div>
+<% end %>
+
+<div class="zts-grid">
+    <div class="zts-card">
+        <h3>Estado</h3>
+        <div class="zts-value"><%=esc(state_label)%></div>
+        <div class="zts-detail">Backend: <%=esc(backend_state)%></div>
+    </div>
+    <div class="zts-card">
+        <h3>Saída de internet</h3>
+        <div class="zts-value"><%=esc(internet_path)%></div>
+        <div class="zts-detail">Failover automático WAN/4G</div>
+    </div>
+    <div class="zts-card">
+        <h3>IP Tailscale</h3>
+        <div class="zts-value"><%=esc(tailscale_ip)%></div>
+    </div>
+    <div class="zts-card">
+        <h3>Dispositivo</h3>
+        <div class="zts-value"><%=esc(device_name)%></div>
+        <div class="zts-detail"><%=esc(dns_name)%></div>
+    </div>
+    <div class="zts-card">
+        <h3>Rota anunciada</h3>
+        <div class="zts-value"><%=esc(nonempty(advertised_routes, "Nenhuma"))%></div>
+        <div class="zts-detail">Configurada no UCI</div>
+    </div>
+    <div class="zts-card">
+        <h3>Dispositivos na tailnet</h3>
+        <div class="zts-value"><%=online_peers%> online / <%=#peers%> conhecidos</div>
+        <div class="zts-detail"><%=active_peers%> com atividade recente; não inclui este roteador</div>
+    </div>
+    <div class="zts-card">
+        <h3>Tailnet</h3>
+        <div class="zts-value"><%=esc(tailnet_name)%></div>
+    </div>
+    <div class="zts-card">
+        <h3>Versões</h3>
+        <div class="zts-value">ZLAN <%=esc(nonempty(project_version, "?"))%></div>
+        <div class="zts-detail">Tailscale <%=esc(nonempty(status and status.Version, "não disponível"))%></div>
+    </div>
+</div>
+
+<div class="cbi-section">
+    <h3>Dispositivos</h3>
+    <% if #peers > 0 then %>
+    <div class="zts-table-wrap">
+        <table class="zts-table">
+            <thead>
+                <tr><th>Nome</th><th>IP Tailscale</th><th>Sistema</th><th>Estado</th><th>Conexão</th></tr>
+            </thead>
+            <tbody>
+            <% for _, peer in ipairs(peers) do %>
+                <tr>
+                    <td><%=esc(peer_name(peer))%></td>
+                    <td><%=esc(nonempty(join_values(peer.TailscaleIPs), "—"))%></td>
+                    <td><%=esc(nonempty(peer.OS, "—"))%></td>
+                    <td class="<%=(peer.Online or peer.Active) and 'zts-online' or 'zts-offline'%>"><%=esc(peer_state(peer))%></td>
+                    <td><%=esc(peer_transport(peer))%></td>
+                </tr>
+            <% end %>
+            </tbody>
+        </table>
+    </div>
+    <% elseif status then %>
+        <p>Nenhum outro dispositivo foi retornado pela tailnet.</p>
+    <% else %>
+        <p>Os dispositivos aparecerão quando a LocalAPI estiver disponível e o Tailscale estiver autenticado.</p>
+    <% end %>
+</div>
+
+<div class="zts-diagnostics">
+    <h3>Diagnóstico</h3>
+    <details>
+        <summary>Serviço e failover</summary>
+        <pre><%=esc(service_status)%>
+<%=esc(route_status)%></pre>
+    </details>
+    <details>
+        <summary>Memória</summary>
+        <pre><%=esc(memory)%></pre>
+    </details>
+    <% if not status and raw_status ~= "" then %>
+    <details open="open">
+        <summary>Erro da LocalAPI</summary>
+        <pre><%=esc(raw_status)%></pre>
+    </details>
+    <% end %>
+    <details>
+        <summary>Últimas 60 linhas do log</summary>
+        <pre><%=esc(logs)%></pre>
+    </details>
+</div>
+
+<%+footer%>

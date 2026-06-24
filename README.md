@@ -1,6 +1,6 @@
 # Tailscale ZLAN9809M Minimal
 
-Runtime exclusivo para transformar o ZLAN9809M em um subnet router Tailscale. Não instala telemetria, MQTT, Modbus ou menus LuCI. Toda a configuração é feita por SSH/UCI.
+Runtime exclusivo para transformar o ZLAN9809M em um subnet router Tailscale. Não instala telemetria, MQTT ou Modbus. A operação continua disponível por SSH/UCI e um menu LuCI somente leitura apresenta o estado do Tailscale.
 
 O projeto usa o Tailscale oficial **v1.98.5**, compilado para `linux/mipsle` com soft-float. Daemon e CLI são binários separados e recebem somente as features necessárias para TUN, autenticação, iptables e anúncio de sub-redes.
 
@@ -29,7 +29,7 @@ O binário combinado anterior expandia para aproximadamente 38,8 MB em cada proc
 ```sh
 wget -4 --no-check-certificate -O /tmp/install-ts-minimal.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/install.sh
-echo '02f4ef541ddcda9c285dc5b883840b6c0c96b67aa64d2de16f7e71dfb6a4174c  /tmp/install-ts-minimal.sh' | sha256sum -c -
+echo 'd2d004f074e98af8496655d3c8ef5e60d2d31191be270a821f47dd4082ca72cc  /tmp/install-ts-minimal.sh' | sha256sum -c -
 sh /tmp/install-ts-minimal.sh
 ```
 
@@ -47,6 +47,7 @@ O instalador:
 - baixa daemon e CLI separadamente para `/tmp`, com SHA-256 fixado;
 - limita o heap do daemon a 32 MiB e o da CLI a 12 MiB;
 - monitora o `mwan3` e corrige automaticamente a rota do Tailscale quando somente o 4G está online;
+- instala o painel leve **Serviços → Tailscale** sem criar outro daemon;
 - habilita `net.ipv4.ip_forward` e inicia o serviço.
 
 Se a auth key não for informada durante a instalação, obtenha a URL de login com:
@@ -85,11 +86,25 @@ free
 df -h /overlay /tmp
 ```
 
+## Interface LuCI
+
+O menu **Serviços → Tailscale** consulta a LocalAPI somente quando a página é carregada. Ele mostra:
+
+- estado e versões do serviço;
+- saída atual pela WAN ou pelo 4G;
+- IP, hostname, nome DNS e tailnet;
+- rota anunciada configurada;
+- quantidade de peers online, ativos e conhecidos;
+- lista de dispositivos com IP, sistema e conexão direta/DERP;
+- memória, estado do failover e últimas linhas do log.
+
+O painel é somente leitura: não altera configuração nem mantém processos adicionais na RAM. Se o menu não aparecer logo após atualizar, recarregue a interface; o instalador limpa os caches do LuCI automaticamente.
+
 ## Failover WAN/4G
 
 O firmware mantém a rota da WAN Ethernet desconectada na tabela principal. Como o fwmark do Tailscale consulta essa tabela antes das regras do `mwan3`, o controle e os DERPs ficavam inacessíveis quando somente o 4G estava online.
 
-A versão 0.2.0 monitora `wan` e `wan_4g`. Quando a WAN fica offline e o 4G está online, instala uma regra exclusiva para o fwmark do Tailscale apontando para a tabela 2. Quando a WAN volta, remove a regra. Hotplug e uma verificação a cada 15 segundos tornam a troca automática.
+Desde a versão 0.2.0, o serviço monitora `wan` e `wan_4g`. Quando a WAN fica offline e o 4G está online, instala uma regra exclusiva para o fwmark do Tailscale apontando para a tabela 2. Quando a WAN volta, remove a regra. Hotplug e uma verificação a cada 15 segundos tornam a troca automática.
 
 ```sh
 /usr/bin/zlan-ts-mwan3 status
