@@ -122,7 +122,7 @@ Os scripts em `build/` fixam:
 - UPX 5.2.0;
 - orçamento máximo de 6,5 MB para os dois arquivos dinâmicos.
 
-Consulte [docs/HARDWARE.md](docs/HARDWARE.md), [docs/BUILD.md](docs/BUILD.md) e [docs/TRIMMING.md](docs/TRIMMING.md).
+Consulte [docs/HARDWARE.md](docs/HARDWARE.md), [docs/BUILD.md](docs/BUILD.md), [docs/TRIMMING.md](docs/TRIMMING.md) e o [histórico completo da investigação](docs/CONVERSATION_HISTORY.md).
 
 ## Licença
 
