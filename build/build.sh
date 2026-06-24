@@ -37,9 +37,11 @@ printf '%s\n' "$TAGS" > "$DIST/build-tags.txt"
 
 cp "$DIST/tailscaled" "$ROOT/assets/tailscaled.min"
 cp "$DIST/tailscale" "$ROOT/assets/tailscale.min"
+chmod 0755 "$ROOT/assets/tailscaled.min" "$ROOT/assets/tailscale.min"
 "$UPX_BIN" --best --lzma "$ROOT/assets/tailscaled.min"
 "$UPX_BIN" --best --lzma "$ROOT/assets/tailscale.min"
 "$UPX_BIN" -t "$ROOT/assets/tailscaled.min" "$ROOT/assets/tailscale.min"
+chmod 0644 "$ROOT/assets/tailscaled.min" "$ROOT/assets/tailscale.min"
 
 DAEMON_SIZE="$(wc -c < "$ROOT/assets/tailscaled.min")"
 CLI_SIZE="$(wc -c < "$ROOT/assets/tailscale.min")"
