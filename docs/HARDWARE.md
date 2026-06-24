@@ -30,7 +30,7 @@ O runtime mínimo reduz simultaneamente:
 
 - código mapeado pelo daemon: de aproximadamente 38,8 MB para 14,2 MB;
 - código mapeado pelo cliente durante `tailscale up`: de aproximadamente 38,8 MB para 10,1 MB;
-- arquivos em tmpfs: de 7,78 MB para aproximadamente 5,69 MB.
+- arquivos em tmpfs: de 7,78 MB para aproximadamente 5,70 MB.
 
 `GOMEMLIMIT` é um limite suave do heap Go, não um limite total de RSS. O kernel ainda pode encerrar o processo em pressão extrema; por isso o loader registra linhas do OOM killer após uma queda.
 

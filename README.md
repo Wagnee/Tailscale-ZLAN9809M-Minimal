@@ -8,9 +8,9 @@ O projeto usa o Tailscale oficial **v1.98.5**, compilado para `linux/mipsle` com
 
 | Componente | Descompactado | UPX em `/tmp` |
 |---|---:|---:|
-| `tailscaled.min` | 14.155.933 bytes | aproximadamente 3,26 MB |
+| `tailscaled.min` | 14.221.469 bytes | aproximadamente 3,27 MB |
 | `tailscale.min` | 10.092.701 bytes | aproximadamente 2,43 MB |
-| Total dinâmico | 24,25 MB | aproximadamente 5,69 MB |
+| Total dinâmico | 24,31 MB | aproximadamente 5,70 MB |
 
 O binário combinado anterior expandia para aproximadamente 38,8 MB em cada processo. Separar a CLI evita carregar novamente todo o daemon durante `tailscale up`.
 
@@ -85,6 +85,7 @@ df -h /overlay /tmp
 - `osrouter` para interface TUN e rotas do kernel;
 - `iptables` para encaminhamento/NAT do subnet router;
 - `ipnbus` para login e comando `tailscale up`;
+- `unixsocketidentity` para reconhecer o UID 0 e autorizar a CLI root na LocalAPI;
 - CLI separada, não embutida no daemon.
 
 O modo netfilter padrão é `on`, para que o Tailscale conecte suas chains ao `FORWARD` e aplique o SNAT da subnet. `nodivert` continua disponível na configuração, mas exige regras iptables externas e não é usado como padrão neste firmware.
