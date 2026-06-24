@@ -8,9 +8,9 @@ O projeto usa o Tailscale oficial **v1.98.5**, compilado para `linux/mipsle` com
 
 | Componente | Descompactado | UPX em `/tmp` |
 |---|---:|---:|
-| `tailscaled.min` | 14.221.469 bytes | aproximadamente 3,27 MB |
+| `tailscaled.min` | 14.287.005 bytes | aproximadamente 3,27 MB |
 | `tailscale.min` | 10.092.701 bytes | aproximadamente 2,43 MB |
-| Total dinâmico | 24,31 MB | aproximadamente 5,70 MB |
+| Total dinâmico | 24,38 MB | aproximadamente 5,70 MB |
 
 O binário combinado anterior expandia para aproximadamente 38,8 MB em cada processo. Separar a CLI evita carregar novamente todo o daemon durante `tailscale up`.
 
@@ -29,7 +29,7 @@ O binário combinado anterior expandia para aproximadamente 38,8 MB em cada proc
 ```sh
 wget -4 --no-check-certificate -O /tmp/install-ts-minimal.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/install.sh
-echo '6258728165f49b62364bdd10ce7f456ccd5e93b56b4ecdf8d6699d189fa77a4a  /tmp/install-ts-minimal.sh' | sha256sum -c -
+echo 'f8051b13a9a661fd5a111f78d53a3563487cb239378c4e42bcfc36f3af9c1a99  /tmp/install-ts-minimal.sh' | sha256sum -c -
 sh /tmp/install-ts-minimal.sh
 ```
 
@@ -91,6 +91,7 @@ df -h /overlay /tmp
 - `iptables` para encaminhamento/NAT do subnet router;
 - `ipnbus` para login e comando `tailscale up`;
 - `unixsocketidentity` para reconhecer o UID 0 e autorizar a CLI root na LocalAPI;
+- `bakedroots` para validar o controle Tailscale mesmo com as CAs antigas do firmware;
 - CLI separada, não embutida no daemon.
 
 O modo netfilter padrão é `on`, para que o Tailscale conecte suas chains ao `FORWARD` e aplique o SNAT da subnet. `nodivert` continua disponível na configuração, mas exige regras iptables externas e não é usado como padrão neste firmware.

@@ -52,6 +52,7 @@ jobs:
           grep -q 'ts_omit_netstack' dist/build-tags.txt
           ! grep -q 'ts_omit_advertiseroutes' dist/build-tags.txt
           ! grep -q 'ts_omit_unixsocketidentity' dist/build-tags.txt
+          ! grep -q 'ts_omit_bakedroots' dist/build-tags.txt
           ! grep -R -E '(^|[[:space:]])opkg([[:space:]]|$)' install.sh rootfs
           ! grep -R -E 'wget([[:space:]]+--no-check-certificate|[[:space:]]+-O)' install.sh rootfs
           grep -q 'wget -4 --no-check-certificate -O' install.sh
