@@ -45,5 +45,6 @@ jobs:
           ! grep -q 'ts_omit_advertiseroutes' dist/build-tags.txt
           ! grep -q 'ts_omit_unixsocketidentity' dist/build-tags.txt
           ! grep -R -E '(^|[[:space:]])opkg([[:space:]]|$)' install.sh rootfs
+          ! grep -R -E 'wget([[:space:]]+--no-check-certificate|[[:space:]]+-O)' install.sh rootfs
           grep -q "option netfilter_mode 'on'" rootfs/usr/share/zlan-ts-minimal/defaults/zlan_ts_minimal
           ! tar -tzf release/zlan-ts-minimal.tar.gz | grep -q -E 'tailscaled\.min|tailscale\.min'

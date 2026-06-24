@@ -88,7 +88,7 @@ download_asset() {
 
     rm -f "$target" "$partial"
     log "baixando $label"
-    if ! wget --no-check-certificate -O "$partial" "$url"; then
+    if ! wget -4 --no-check-certificate -O "$partial" "$url"; then
         rm -f "$partial"
         log "falha baixando $label"
         return 1

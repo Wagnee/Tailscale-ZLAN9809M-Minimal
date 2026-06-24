@@ -11,6 +11,7 @@
 - RAM reportada: 123.060 KB;
 - swap: inexistente;
 - TUN: integrado e disponível em `/dev/net/tun`.
+- WAN: IPv4 funcional; o firmware pode resolver endereços IPv6 mesmo sem rota IPv6 utilizável.
 
 ## Armazenamento
 

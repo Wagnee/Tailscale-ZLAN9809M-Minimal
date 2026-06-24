@@ -27,7 +27,7 @@ O binário combinado anterior expandia para aproximadamente 38,8 MB em cada proc
 ## Instalação ou atualização
 
 ```sh
-wget -O /tmp/install-ts-minimal.sh \
+wget -4 -O /tmp/install-ts-minimal.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/install.sh
 sh /tmp/install-ts-minimal.sh
 ```
@@ -35,6 +35,7 @@ sh /tmp/install-ts-minimal.sh
 O instalador:
 
 - valida o equipamento e não usa `opkg`;
+- força IPv4 nos downloads porque o firmware resolve AAAA sem possuir rota IPv6 funcional;
 - preserva `/etc/tailscale/tailscaled.state`;
 - remove do overlay os componentes dos projetos híbrido/offline anteriores;
 - não grava os binários Tailscale na flash;
@@ -99,7 +100,7 @@ O relatório mostra `/rom` squashfs de 7,9 MB e overlay originalmente usando ape
 Por isso o instalador remove somente arquivos dos projetos anteriores que realmente foram gravados no overlay. Para auditar o equipamento:
 
 ```sh
-wget -O /tmp/audit.sh \
+wget -4 -O /tmp/audit.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/tools/audit-storage.sh
 sh /tmp/audit.sh
 ```

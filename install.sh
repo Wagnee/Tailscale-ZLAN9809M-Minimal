@@ -204,8 +204,8 @@ echo " Tailscale ZLAN9809M Minimal"
 echo "=========================================="
 check_hardware
 mkdir -p "$WORK" "$PAYLOAD"
-wget -O "$ARCHIVE" "$ARCHIVE_URL" || fail "download do payload falhou"
-wget -O "$HASH_FILE" "$HASH_URL" || fail "download do hash falhou"
+wget -4 -O "$ARCHIVE" "$ARCHIVE_URL" || fail "download IPv4 do payload falhou"
+wget -4 -O "$HASH_FILE" "$HASH_URL" || fail "download IPv4 do hash falhou"
 verify_payload
 tar -xzf "$ARCHIVE" -C "$PAYLOAD" || fail "payload corrompido"
 [ -f "$PAYLOAD/usr/bin/zlan-ts-minimal" ] || fail "payload incompleto"
