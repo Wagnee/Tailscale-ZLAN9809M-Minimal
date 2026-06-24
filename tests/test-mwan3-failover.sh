@@ -2,7 +2,8 @@
 
 set -eu
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+SCRIPT_DIR="$(dirname -- "$0")"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HELPER="$ROOT/rootfs/usr/bin/zlan-ts-mwan3"
 WORK="${TMPDIR:-/tmp}/zlan-ts-mwan3-test.$$"
 BIN="$WORK/bin"
