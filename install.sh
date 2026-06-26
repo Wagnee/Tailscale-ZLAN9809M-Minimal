@@ -4,7 +4,7 @@ set -u
 
 BASE_URL="${ZLAN_RELEASE_URL:-https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/release}"
 ARCHIVE_URL="$BASE_URL/zlan-ts-minimal.tar.gz"
-ARCHIVE_SHA256='f7a5aa713e4d04caea151a8f668fd90904966ac9b3c8152e3e000283924c60f1'
+ARCHIVE_SHA256='11854a9df55f1a9f5cac3ef4c977444c61596d1b2ce68a6be16b8739e1b2f875'
 WORK="/tmp/zlan-ts-install.$$"
 ARCHIVE="$WORK/payload.tar.gz"
 PAYLOAD="$WORK/payload"

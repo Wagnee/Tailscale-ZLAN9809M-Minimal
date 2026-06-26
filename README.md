@@ -29,7 +29,7 @@ O binário combinado anterior expandia para aproximadamente 38,8 MB em cada proc
 ```sh
 wget -4 --no-check-certificate -O /tmp/install-ts-minimal.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/install.sh
-echo '920a71cf6447709ed69f97e79044a90d5b546437aa8b9c7554dbfd061bda94f1  /tmp/install-ts-minimal.sh' | sha256sum -c -
+echo '3897503d990b61d27a58aa8d2cc85b38eb29950a462adba79b2a3eb5f2920741  /tmp/install-ts-minimal.sh' | sha256sum -c -
 sh /tmp/install-ts-minimal.sh
 ```
 
