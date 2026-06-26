@@ -15,32 +15,124 @@ numeric_or_default() {
     case "$1" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
 }
 
+valid_table() {
+    case "$1" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$1" -ge 1 ] && [ "$1" -le 252 ]
+}
+
 load_config() {
     ENABLED="$(uci_get mwan3_failover 1)"
     RULE_PREF="$(numeric_or_default "$(uci_get mwan3_rule_pref 1305)" 1305)"
-    RULE_TABLE="$(numeric_or_default "$(uci_get mwan3_4g_table 2)" 2)"
     WAN_INTERFACE="$(uci_get mwan3_wan_interface wan)"
     MOBILE_INTERFACE="$(uci_get mwan3_4g_interface wan_4g)"
+    MOBILE_TABLE_SETTING="$(uci_get mwan3_4g_table auto)"
+    WIFI_INTERFACE_SETTING="$(uci_get mwan3_wifi_interface auto)"
+    WIFI_TABLE_SETTING="$(uci_get mwan3_wifi_table auto)"
     if [ "$RULE_PREF" -lt 1 ] || [ "$RULE_PREF" -gt 32765 ]; then RULE_PREF=1305; fi
-    if [ "$RULE_TABLE" -lt 1 ] || [ "$RULE_TABLE" -gt 252 ]; then RULE_TABLE=2; fi
+}
+
+mwan3_table_for_interface() {
+    wanted="$1"
+    table=0
+    "$UCI_BIN" -q show mwan3 2>/dev/null | while IFS= read -r line; do
+        case "$line" in
+            mwan3.*=interface)
+                section="${line#mwan3.}"
+                section="${section%%=*}"
+                table=$((table + 1))
+                if [ "$section" = "$wanted" ]; then
+                    printf '%s\n' "$table"
+                    break
+                fi
+                ;;
+        esac
+    done
+}
+
+resolve_table() {
+    interface="$1"
+    setting="$2"
+    fallback="$3"
+    if valid_table "$setting"; then printf '%s' "$setting"; return; fi
+    table="$(mwan3_table_for_interface "$interface")"
+    if valid_table "$table"; then printf '%s' "$table"; return; fi
+    if valid_table "$fallback"; then printf '%s' "$fallback"; fi
+}
+
+wifi_sta_networks() {
+    "$UCI_BIN" -q show wireless 2>/dev/null | sed -n 's/^wireless\.\([^.=]*\)=wifi-iface$/\1/p' |
+    while IFS= read -r section; do
+        mode="$("$UCI_BIN" -q get "wireless.$section.mode" 2>/dev/null)"
+        case "$mode" in
+            sta|sta-wds)
+                networks="$("$UCI_BIN" -q get "wireless.$section.network" 2>/dev/null)"
+                for network in $networks; do printf '%s\n' "$network"; done
+                ;;
+        esac
+    done
+}
+
+auto_wifi_interface() {
+    for candidate in $(wifi_sta_networks); do
+        [ "$candidate" = "$WAN_INTERFACE" ] && continue
+        [ "$candidate" = "$MOBILE_INTERFACE" ] && continue
+        table="$(mwan3_table_for_interface "$candidate")"
+        if valid_table "$table"; then printf '%s' "$candidate"; return; fi
+    done
+}
+
+wifi_interface() {
+    case "$WIFI_INTERFACE_SETTING" in
+        ''|auto) auto_wifi_interface ;;
+        0|off|disabled) ;;
+        *) printf '%s' "$WIFI_INTERFACE_SETTING" ;;
+    esac
 }
 
 rule_lines() {
     "$IP_BIN" -4 rule show 2>/dev/null | sed -n "/^${RULE_PREF}:/p"
 }
 
-has_managed_rule() {
-    rule_lines | grep -F "fwmark $MARK lookup $RULE_TABLE" >/dev/null 2>&1
+managed_tables() {
+    rule_lines | sed -n "s|.*fwmark $MARK lookup \([0-9][0-9]*\).*|\1|p"
 }
 
-conflicting_rules() {
-    rule_lines | grep -F -v "fwmark $MARK lookup $RULE_TABLE" 2>/dev/null
+has_managed_rule() {
+    wanted="$1"
+    for table in $(managed_tables); do [ "$table" = "$wanted" ] && return 0; done
+    return 1
+}
+
+has_only_managed_rule() {
+    wanted="$1"
+    count=0
+    for table in $(managed_tables); do
+        [ "$table" = "$wanted" ] || return 1
+        count=$((count + 1))
+    done
+    [ "$count" -eq 1 ]
+}
+
+has_conflicting_rule() {
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        case "$line" in
+            *"fwmark $MARK lookup "*)
+                table="${line##*fwmark $MARK lookup }"
+                valid_table "$table" || return 0
+                ;;
+            *) return 0 ;;
+        esac
+    done <<EOF
+$(rule_lines)
+EOF
+    return 1
 }
 
 remove_managed_rule() {
     changed=0
-    while has_managed_rule; do
-        if ! "$IP_BIN" -4 rule del pref "$RULE_PREF" fwmark "$MARK" lookup "$RULE_TABLE" 2>/dev/null; then
+    for table in $(managed_tables); do
+        if ! "$IP_BIN" -4 rule del pref "$RULE_PREF" fwmark "$MARK" lookup "$table" 2>/dev/null; then
             echo "warning:falha-removendo-regra-$RULE_PREF"
             return 1
         fi
@@ -57,7 +149,24 @@ interface_is_online() {
 }
 
 table_has_default() {
-    "$IP_BIN" -4 route show table "$RULE_TABLE" 2>/dev/null | grep -q '^default '
+    "$IP_BIN" -4 route show table "$1" 2>/dev/null | grep -q '^default '
+}
+
+ensure_table() {
+    target_table="$1"
+    target_name="$2"
+    if has_conflicting_rule; then
+        echo "warning:prioridade-$RULE_PREF-ocupada"
+        return 1
+    fi
+    if has_only_managed_rule "$target_table"; then return; fi
+    remove_managed_rule || return 1
+    if ! "$IP_BIN" -4 rule add pref "$RULE_PREF" fwmark "$MARK" lookup "$target_table" 2>/dev/null; then
+        echo "warning:falha-adicionando-regra-$RULE_PREF"
+        return 1
+    fi
+    "$IP_BIN" route flush cache 2>/dev/null || true
+    echo "changed:${target_name}-ativo-regra-$RULE_PREF-tabela-$target_table"
 }
 
 sync_rule() {
@@ -76,35 +185,45 @@ sync_rule() {
         remove_managed_rule
         return
     fi
-    if ! interface_is_online "$MOBILE_INTERFACE" || ! table_has_default; then
-        remove_managed_rule
+
+    WIFI_INTERFACE="$(wifi_interface)"
+    if [ -n "$WIFI_INTERFACE" ]; then
+        WIFI_TABLE="$(resolve_table "$WIFI_INTERFACE" "$WIFI_TABLE_SETTING" '')"
+        if interface_is_online "$WIFI_INTERFACE" && valid_table "$WIFI_TABLE" && table_has_default "$WIFI_TABLE"; then
+            ensure_table "$WIFI_TABLE" wifi
+            return
+        fi
+    fi
+
+    MOBILE_TABLE="$(resolve_table "$MOBILE_INTERFACE" "$MOBILE_TABLE_SETTING" 2)"
+    if interface_is_online "$MOBILE_INTERFACE" && valid_table "$MOBILE_TABLE" && table_has_default "$MOBILE_TABLE"; then
+        ensure_table "$MOBILE_TABLE" 4g
         return
     fi
-    if [ -n "$(conflicting_rules)" ]; then
-        echo "warning:prioridade-$RULE_PREF-ocupada"
-        return 1
-    fi
-    if ! has_managed_rule; then
-        if ! "$IP_BIN" -4 rule add pref "$RULE_PREF" fwmark "$MARK" lookup "$RULE_TABLE" 2>/dev/null; then
-            echo "warning:falha-adicionando-regra-$RULE_PREF"
-            return 1
-        fi
-        "$IP_BIN" route flush cache 2>/dev/null || true
-        echo "changed:4g-ativo-regra-$RULE_PREF-tabela-$RULE_TABLE"
-    fi
+    remove_managed_rule
 }
 
 show_status() {
     echo "failover mwan3: $ENABLED"
-    echo "regra: pref $RULE_PREF fwmark $MARK lookup $RULE_TABLE"
+    echo "regra: pref $RULE_PREF fwmark $MARK"
     if ! command -v "$MWAN3_BIN" >/dev/null 2>&1; then
         echo "mwan3: indisponivel"
         return
     fi
     MWAN_STATUS="$("$MWAN3_BIN" status 2>&1)"
+    WIFI_INTERFACE="$(wifi_interface)"
+    MOBILE_TABLE="$(resolve_table "$MOBILE_INTERFACE" "$MOBILE_TABLE_SETTING" 2)"
+    if [ "$WIFI_INTERFACE" = "" ]; then
+        echo "wifi: nao configurado"
+    elif interface_is_online "$WIFI_INTERFACE"; then
+        echo "wifi: online ($WIFI_INTERFACE)"
+    else
+        echo "wifi: offline ($WIFI_INTERFACE)"
+    fi
     if interface_is_online "$WAN_INTERFACE"; then echo "wan: online"; else echo "wan: offline"; fi
-    if interface_is_online "$MOBILE_INTERFACE"; then echo "4g: online"; else echo "4g: offline"; fi
-    if has_managed_rule; then echo "override Tailscale: ativo"; else echo "override Tailscale: inativo"; fi
+    if interface_is_online "$MOBILE_INTERFACE"; then echo "4g: online (tabela ${MOBILE_TABLE:-?})"; else echo "4g: offline"; fi
+    for table in $(managed_tables); do echo "override Tailscale: ativo (tabela $table)"; return; done
+    echo "override Tailscale: inativo"
 }
 
 load_config

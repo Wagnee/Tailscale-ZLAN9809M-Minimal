@@ -102,13 +102,20 @@ if fs.access("/usr/bin/zlan-ts-mwan3") then
     route_status = sys.exec("/usr/bin/zlan-ts-mwan3 status 2>&1")
 end
 local wan_online = route_status:find("wan: online", 1, true) ~= nil
+local wifi_online = route_status:find("wifi: online", 1, true) ~= nil
 local mobile_online = route_status:find("4g: online", 1, true) ~= nil
 local override_active = route_status:find("override Tailscale: ativo", 1, true) ~= nil
+local wifi_name = route_status:match("wifi: online %(([^)]+)%)") or "Wi-Fi"
+local mobile_table = route_status:match("4g: online %(tabela ([^)]+)%)") or "?"
 local internet_path
-if override_active then
-    internet_path = "4G (wan_4g / tabela 2)"
+if override_active and wifi_online then
+    internet_path = "Wi-Fi (" .. wifi_name .. ")"
+elseif override_active then
+    internet_path = "4G (tabela " .. mobile_table .. ")"
 elseif wan_online then
     internet_path = "WAN (cabo de rede)"
+elseif wifi_online then
+    internet_path = "Wi-Fi detectado; aguardando sincronização"
 elseif mobile_online then
     internet_path = "4G detectado; aguardando sincronização"
 else
@@ -182,7 +189,7 @@ end
     <div class="zts-card">
         <h3>Saída de internet</h3>
         <div class="zts-value"><%=esc(internet_path)%></div>
-        <div class="zts-detail">Failover automático WAN/4G</div>
+        <div class="zts-detail">Prioridade WAN → Wi-Fi → 4G</div>
     </div>
     <div class="zts-card">
         <h3>IP Tailscale</h3>

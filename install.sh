@@ -4,7 +4,7 @@ set -u
 
 BASE_URL="${ZLAN_RELEASE_URL:-https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/release}"
 ARCHIVE_URL="$BASE_URL/zlan-ts-minimal.tar.gz"
-ARCHIVE_SHA256='c93aa7f80981aba2d4c13336b789e1eef4bfbe075d834723a95748860e5a6d2e'
+ARCHIVE_SHA256='f7a5aa713e4d04caea151a8f668fd90904966ac9b3c8152e3e000283924c60f1'
 WORK="/tmp/zlan-ts-install.$$"
 ARCHIVE="$WORK/payload.tar.gz"
 PAYLOAD="$WORK/payload"
@@ -174,12 +174,17 @@ install_config() {
         value="$(default_option "$field")"
         uci set "zlan_ts_minimal.main.$field=$value"
     done
-    for field in mwan3_failover mwan3_rule_pref mwan3_4g_table mwan3_wan_interface mwan3_4g_interface mwan3_check_interval; do
+    for field in mwan3_failover mwan3_rule_pref mwan3_4g_table mwan3_wan_interface mwan3_wifi_interface mwan3_wifi_table mwan3_4g_interface mwan3_check_interval; do
         if [ -z "$(uci -q get "zlan_ts_minimal.main.$field" 2>/dev/null)" ]; then
             value="$(default_option "$field")"
             uci set "zlan_ts_minimal.main.$field=$value"
         fi
     done
+    # A tabela do mwan3 depende da ordem das interfaces configuradas. A versao
+    # anterior fixava o 4G na tabela 2; passe a deriva-la da configuracao.
+    if [ "$(uci -q get zlan_ts_minimal.main.mwan3_4g_table 2>/dev/null)" = "2" ]; then
+        uci set zlan_ts_minimal.main.mwan3_4g_table='auto'
+    fi
     detect_lan_route
     uci commit zlan_ts_minimal
     chmod 0600 /etc/config/zlan_ts_minimal

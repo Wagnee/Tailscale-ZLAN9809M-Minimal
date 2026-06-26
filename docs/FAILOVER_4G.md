@@ -1,4 +1,4 @@
-# Failover automático WAN/4G
+# Failover automático WAN/Wi-Fi/4G
 
 ## Causa confirmada no ZLAN9809M
 
@@ -15,10 +15,11 @@ A tabela `main` ainda mantinha a WAN Ethernet desconectada com métrica 1 e o 4G
 
 ## Correção implementada
 
-O serviço `/usr/bin/zlan-ts-mwan3` observa o estado real do `mwan3`:
+O serviço `/usr/bin/zlan-ts-mwan3` observa o estado real do `mwan3` nesta ordem:
 
 - WAN online: remove o override e deixa o Tailscale usar a rota principal;
-- WAN offline e `wan_4g` online, com default route na tabela 2: instala a regra abaixo;
+- WAN offline e Wi-Fi cliente online: instala a regra na tabela do Wi-Fi;
+- WAN e Wi-Fi indisponíveis, com `wan_4g` online: instala a regra na tabela do 4G;
 - nenhuma saída disponível: remove o override;
 - prioridade 1305 ocupada por outra regra: não altera nada e registra um aviso.
 
@@ -27,7 +28,9 @@ ip -4 rule add pref 1305 fwmark 0x80000/0xff0000 lookup 2
 ip route flush cache
 ```
 
-A prioridade 1305 é anterior à regra 1310 do Tailscale. O seletor usa somente o fwmark interno do Tailscale e não muda a rota do tráfego comum do roteador.
+A prioridade 1305 é anterior à regra 1310 do Tailscale. O seletor usa somente o fwmark interno do Tailscale e não muda a rota do tráfego comum do roteador. A tabela não é fixada: o helper deriva o ID pela ordem das seções `config interface` em `/etc/config/mwan3`, a mesma regra usada pelo `mwan3` 2.10 do OpenWrt 21.02.
+
+Para ser elegível, o Wi-Fi precisa ser uma interface cliente `mode=sta` em `/etc/config/wireless`, estar presente no `mwan3` e aparecer como `online` no rastreamento. Um SSID associado sem internet aparece como offline no `mwan3` e não é escolhido.
 
 A sincronização ocorre:
 
@@ -42,8 +45,10 @@ Os valores padrão correspondem ao firmware analisado:
 ```text
 option mwan3_failover '1'
 option mwan3_rule_pref '1305'
-option mwan3_4g_table '2'
+option mwan3_4g_table 'auto'
 option mwan3_wan_interface 'wan'
+option mwan3_wifi_interface 'auto'
+option mwan3_wifi_table 'auto'
 option mwan3_4g_interface 'wan_4g'
 option mwan3_check_interval '15'
 ```
@@ -53,6 +58,15 @@ Estado atual:
 ```sh
 /usr/bin/zlan-ts-mwan3 status
 /etc/init.d/zlan-ts-minimal status
+```
+
+`auto` é o modo recomendado. Se a interface Wi-Fi cliente tiver outro nome ou não for declarada em `/etc/config/wireless`, configure o nome usado pelo `mwan3` explicitamente:
+
+```sh
+uci set zlan_ts_minimal.main.mwan3_wifi_interface='wan_wifi'
+uci set zlan_ts_minimal.main.mwan3_wifi_table='auto'
+uci commit zlan_ts_minimal
+/usr/bin/zlan-ts-mwan3 sync
 ```
 
 Desativação e remoção imediata da regra gerenciada:

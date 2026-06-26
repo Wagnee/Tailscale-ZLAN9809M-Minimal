@@ -508,3 +508,15 @@ Foi criado um painel somente leitura em **Serviços → Tailscale**. Ele consult
 Nenhum novo daemon foi adicionado. A CLI temporária já existente executa apenas durante a consulta da página e permanece sujeita ao limite de memória configurado. O painel não permite alterar configuração, iniciar ou parar serviços, reduzindo a superfície de erro e mantendo o SSH/UCI como caminho administrativo.
 
 O CI passou a validar o controller com Lua 5.1 e a sintaxe dos blocos Lua do template LuCI, correspondente à geração usada pelo OpenWrt 21.02.
+
+## 16. Versão 0.4.0 — prioridade WAN, Wi-Fi e 4G
+
+O usuário observou que o equipamento também possui Wi-Fi e definiu a prioridade correta de saída para o Tailscale:
+
+```text
+WAN com internet → Wi-Fi com internet → 4G
+```
+
+A implementação não considera uma associação Wi-Fi como conectividade suficiente. Ela detecta interfaces `mode=sta` no UCI, cruza-as com as interfaces configuradas no `mwan3` e só seleciona o Wi-Fi quando o `mwan3` reporta `online`, isto é, depois do teste de rastreamento configurado pelo firmware.
+
+Também foi removida a dependência de uma tabela 4G fixa. A tabela de cada interface é derivada da ordem das seções `config interface` do `mwan3`, compatível com a forma como o mwan3 2.10 do OpenWrt 21.02 atribui seus IDs. Assim, adicionar o Wi-Fi antes ou depois do 4G não direciona o fwmark do Tailscale para uma tabela errada.

@@ -29,7 +29,7 @@ O binário combinado anterior expandia para aproximadamente 38,8 MB em cada proc
 ```sh
 wget -4 --no-check-certificate -O /tmp/install-ts-minimal.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/install.sh
-echo 'd2d004f074e98af8496655d3c8ef5e60d2d31191be270a821f47dd4082ca72cc  /tmp/install-ts-minimal.sh' | sha256sum -c -
+echo '920a71cf6447709ed69f97e79044a90d5b546437aa8b9c7554dbfd061bda94f1  /tmp/install-ts-minimal.sh' | sha256sum -c -
 sh /tmp/install-ts-minimal.sh
 ```
 
@@ -46,7 +46,7 @@ O instalador:
 - detecta automaticamente uma LAN `/24` pelo UCI;
 - baixa daemon e CLI separadamente para `/tmp`, com SHA-256 fixado;
 - limita o heap do daemon a 32 MiB e o da CLI a 12 MiB;
-- monitora o `mwan3` e corrige automaticamente a rota do Tailscale quando somente o 4G está online;
+- monitora o `mwan3` e corrige automaticamente a rota do Tailscale com prioridade WAN → Wi-Fi → 4G;
 - instala o painel leve **Serviços → Tailscale** sem criar outro daemon;
 - habilita `net.ipv4.ip_forward` e inicia o serviço.
 
@@ -91,7 +91,7 @@ df -h /overlay /tmp
 O menu **Serviços → Tailscale** consulta a LocalAPI somente quando a página é carregada. Ele mostra:
 
 - estado e versões do serviço;
-- saída atual pela WAN ou pelo 4G;
+- saída atual pela WAN, Wi-Fi ou 4G;
 - IP, hostname, nome DNS e tailnet;
 - rota anunciada configurada;
 - quantidade de peers online, ativos e conhecidos;
@@ -100,15 +100,24 @@ O menu **Serviços → Tailscale** consulta a LocalAPI somente quando a página 
 
 O painel é somente leitura: não altera configuração nem mantém processos adicionais na RAM. Se o menu não aparecer logo após atualizar, recarregue a interface; o instalador limpa os caches do LuCI automaticamente.
 
-## Failover WAN/4G
+## Failover WAN/Wi-Fi/4G
 
-O firmware mantém a rota da WAN Ethernet desconectada na tabela principal. Como o fwmark do Tailscale consulta essa tabela antes das regras do `mwan3`, o controle e os DERPs ficavam inacessíveis quando somente o 4G estava online.
+O firmware mantém a rota da WAN Ethernet desconectada na tabela principal. Como o fwmark do Tailscale consulta essa tabela antes das regras do `mwan3`, o controle e os DERPs ficavam inacessíveis quando apenas uma rota alternativa estava online.
 
-Desde a versão 0.2.0, o serviço monitora `wan` e `wan_4g`. Quando a WAN fica offline e o 4G está online, instala uma regra exclusiva para o fwmark do Tailscale apontando para a tabela 2. Quando a WAN volta, remove a regra. Hotplug e uma verificação a cada 15 segundos tornam a troca automática.
+Desde a versão 0.4.0, a ordem é `wan` → Wi-Fi cliente → `wan_4g`. O Wi-Fi só é escolhido quando uma interface `mode=sta` também está configurada e monitorada no `mwan3`, cujo status esteja `online`. A tabela de rota é derivada da própria configuração do `mwan3`; portanto, continua correta mesmo se a ordem das interfaces mudar.
 
 ```sh
 /usr/bin/zlan-ts-mwan3 status
 ip -4 rule show
+```
+
+Caso o Wi-Fi cliente use um nome não detectável automaticamente, informe-o uma vez:
+
+```sh
+uci set zlan_ts_minimal.main.mwan3_wifi_interface='wan_wifi'
+uci set zlan_ts_minimal.main.mwan3_wifi_table='auto'
+uci commit zlan_ts_minimal
+/usr/bin/zlan-ts-mwan3 sync
 ```
 
 Detalhes técnicos, configuração e rollback estão em [docs/FAILOVER_4G.md](docs/FAILOVER_4G.md).
