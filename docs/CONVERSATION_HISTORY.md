@@ -520,3 +520,9 @@ WAN com internet → Wi-Fi com internet → 4G
 A implementação não considera uma associação Wi-Fi como conectividade suficiente. Ela detecta interfaces `mode=sta` no UCI, cruza-as com as interfaces configuradas no `mwan3` e só seleciona o Wi-Fi quando o `mwan3` reporta `online`, isto é, depois do teste de rastreamento configurado pelo firmware.
 
 Também foi removida a dependência de uma tabela 4G fixa. A tabela de cada interface é derivada da ordem das seções `config interface` do `mwan3`, compatível com a forma como o mwan3 2.10 do OpenWrt 21.02 atribui seus IDs. Assim, adicionar o Wi-Fi antes ou depois do 4G não direciona o fwmark do Tailscale para uma tabela errada.
+
+## 17. Versão 0.5.0 — inventário de dispositivos locais
+
+O usuário perguntou se o OpenWrt consegue ver todos os dispositivos conectados, inclusive os que não receberam DHCP. A resposta técnica é que DHCP não é a única fonte: ARP/neighbor cache fornece IP e MAC de equipamentos estáticos que tenham falado com o roteador; a bridge e o Wi-Fi fornecem MACs de equipamentos vistos na camada 2.
+
+Não existe uma forma passiva de saber o IP de um dispositivo com endereço estático que nunca transmite pacotes. Para não adicionar scanner, tráfego ou dependências ao ZLAN9809M, foi criado o menu **Serviços → Dispositivos locais**. A página combina leases DHCP, `/proc/net/arp`, `ip neigh`, FDB da bridge e estações Wi-Fi associadas. Ela informa a fonte de cada dado e mantém MACs vistos sem IP em uma linha própria do inventário.

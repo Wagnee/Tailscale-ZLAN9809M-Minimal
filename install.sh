@@ -4,7 +4,7 @@ set -u
 
 BASE_URL="${ZLAN_RELEASE_URL:-https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/release}"
 ARCHIVE_URL="$BASE_URL/zlan-ts-minimal.tar.gz"
-ARCHIVE_SHA256='11854a9df55f1a9f5cac3ef4c977444c61596d1b2ce68a6be16b8739e1b2f875'
+ARCHIVE_SHA256='9c5b52a8dedc8a3831d05f26d68e41bc06b22dfe20dbe8e787571622cf383602'
 WORK="/tmp/zlan-ts-install.$$"
 ARCHIVE="$WORK/payload.tar.gz"
 PAYLOAD="$WORK/payload"
@@ -220,6 +220,8 @@ tar -xzf "$ARCHIVE" -C "$PAYLOAD" || fail "payload corrompido"
 [ -f "$PAYLOAD/usr/bin/zlan-ts-minimal" ] || fail "payload incompleto"
 [ -f "$PAYLOAD/usr/lib/lua/luci/controller/zlan_tailscale.lua" ] || fail "controller LuCI ausente"
 [ -f "$PAYLOAD/usr/lib/lua/luci/view/zlan_tailscale/status.htm" ] || fail "view LuCI ausente"
+[ -f "$PAYLOAD/usr/lib/lua/luci/controller/zlan_devices.lua" ] || fail "controller de dispositivos ausente"
+[ -f "$PAYLOAD/usr/lib/lua/luci/view/zlan_devices/status.htm" ] || fail "view de dispositivos ausente"
 
 stop_legacy
 remove_legacy_overlay
@@ -227,7 +229,9 @@ cp -R "$PAYLOAD"/. / || fail "falha copiando payload"
 chmod 0755 /usr/bin/zlan-ts-minimal /usr/bin/zlan-ts /usr/bin/zlan-ts-mwan3 \
     /etc/init.d/zlan-ts-minimal /etc/hotplug.d/iface/95-zlan-ts-mwan3
 chmod 0644 /usr/lib/lua/luci/controller/zlan_tailscale.lua \
-    /usr/lib/lua/luci/view/zlan_tailscale/status.htm
+    /usr/lib/lua/luci/view/zlan_tailscale/status.htm \
+    /usr/lib/lua/luci/controller/zlan_devices.lua \
+    /usr/lib/lua/luci/view/zlan_devices/status.htm
 find /usr/share/zlan-ts-minimal -type d -exec chmod 0755 {} \;
 find /usr/share/zlan-ts-minimal -type f -exec chmod 0644 {} \;
 install_config
@@ -247,4 +251,4 @@ echo "Instalacao concluida."
 echo "Status: /etc/init.d/zlan-ts-minimal status"
 echo "Log: tail -f /tmp/zlan-ts-minimal.log"
 echo "Config: /etc/config/zlan_ts_minimal"
-echo "LuCI: Servicos > Tailscale"
+echo "LuCI: Servicos > Tailscale e Dispositivos locais"

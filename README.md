@@ -29,7 +29,7 @@ O binário combinado anterior expandia para aproximadamente 38,8 MB em cada proc
 ```sh
 wget -4 --no-check-certificate -O /tmp/install-ts-minimal.sh \
   https://raw.githubusercontent.com/Wagnee/Tailscale-ZLAN9809M-Minimal/main/install.sh
-echo '3897503d990b61d27a58aa8d2cc85b38eb29950a462adba79b2a3eb5f2920741  /tmp/install-ts-minimal.sh' | sha256sum -c -
+echo '4d1b5d11ff751a68b5fa2ca9a8046ed74733537e6e30a047132c69d0a81b1fa7  /tmp/install-ts-minimal.sh' | sha256sum -c -
 sh /tmp/install-ts-minimal.sh
 ```
 
@@ -99,6 +99,17 @@ O menu **Serviços → Tailscale** consulta a LocalAPI somente quando a página 
 - memória, estado do failover e últimas linhas do log.
 
 O painel é somente leitura: não altera configuração nem mantém processos adicionais na RAM. Se o menu não aparecer logo após atualizar, recarregue a interface; o instalador limpa os caches do LuCI automaticamente.
+
+## Dispositivos locais no LuCI
+
+O menu **Serviços → Dispositivos locais** é um inventário somente leitura da rede local. Ele cruza:
+
+- leases DHCP, incluindo hostname quando informado;
+- cache ARP e neighbor IPv4/IPv6, que revela dispositivos com IP estático após comunicação;
+- tabela MAC da bridge, para dispositivos Ethernet vistos mesmo sem DHCP;
+- estações Wi-Fi associadas ao rádio do roteador.
+
+Não há como descobrir com certeza o IP de um equipamento estático que nunca transmite tráfego. Nessa situação a tela pode mostrar o MAC e a interface, mas não um IP. O painel não faz varredura ativa e não instala pacotes adicionais.
 
 ## Failover WAN/Wi-Fi/4G
 

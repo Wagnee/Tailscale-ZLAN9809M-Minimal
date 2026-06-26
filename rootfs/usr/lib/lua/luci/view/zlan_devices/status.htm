@@ -1,0 +1,228 @@
+<%+header%>
+
+<%
+local sys = require "luci.sys"
+local util = require "luci.util"
+local fs = require "nixio.fs"
+
+local LAN_BRIDGE = "br-lan"
+
+local function esc(value)
+    return util.pcdata(tostring(value or ""))
+end
+
+local function trim(value)
+    value = value or ""
+    return value:match("^%s*(.-)%s*$") or ""
+end
+
+local function normalize_mac(value)
+    value = string.lower(trim(value))
+    if not value:match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") then return "" end
+    if value:match("^01:") or value:match("^33:") or value == "ff:ff:ff:ff:ff:ff" then return "" end
+    return value
+end
+
+local local_macs = {}
+local bridge_mac = normalize_mac(fs.readfile("/sys/class/net/" .. LAN_BRIDGE .. "/address"))
+if bridge_mac ~= "" then local_macs[bridge_mac] = true end
+
+local devices = {}
+local by_ip = {}
+
+local function add_source(device, source)
+    device.sources[source] = true
+end
+
+local function add_ip(device, ip, state)
+    if ip == "" then return end
+    if not device.ips[ip] then device.ips[ip] = state or "" end
+    by_ip[ip] = device
+end
+
+local function get_device(mac, ip)
+    mac = normalize_mac(mac)
+    local device = mac ~= "" and devices[mac] or by_ip[ip]
+    if not device then
+        device = { mac = mac, ips = {}, states = {}, interfaces = {}, sources = {}, hostname = "" }
+        if mac ~= "" then devices[mac] = device end
+    end
+    if mac ~= "" and device.mac == "" then
+        device.mac = mac
+        devices[mac] = device
+    end
+    if ip and ip ~= "" then add_ip(device, ip) end
+    return device
+end
+
+local dhcp_count = 0
+for line in (fs.readfile("/tmp/dhcp.leases") or ""):gmatch("[^\n]+") do
+    local _, mac, ip, hostname = line:match("^(%S+)%s+(%S+)%s+(%S+)%s+(%S*)")
+    if mac and ip then
+        local device = get_device(mac, ip)
+        if hostname and hostname ~= "" and hostname ~= "*" then device.hostname = hostname end
+        add_source(device, "DHCP")
+        dhcp_count = dhcp_count + 1
+    end
+end
+
+for line in (fs.readfile("/proc/net/arp") or ""):gmatch("[^\n]+") do
+    local ip, mac, interface = line:match("^%s*(%S+)%s+%S+%s+%S+%s+(%S+)%s+%S+%s+(%S+)")
+    if ip and interface == LAN_BRIDGE and normalize_mac(mac) ~= "" then
+        local device = get_device(mac, ip)
+        device.interfaces[interface] = true
+        add_source(device, "ARP")
+    end
+end
+
+local function collect_neighbors(command, source)
+    for line in sys.exec(command):gmatch("[^\n]+") do
+        local ip, interface, mac, state = line:match("^(%S+)%s+dev%s+(%S+)%s+lladdr%s+(%S+)%s+(%S+)")
+        if ip and interface == LAN_BRIDGE and normalize_mac(mac) ~= "" then
+            local device = get_device(mac, ip)
+            device.interfaces[interface] = true
+            device.states[ip] = state or ""
+            add_source(device, source)
+        end
+    end
+end
+
+collect_neighbors("ip -4 neigh show 2>/dev/null", "Neighbor IPv4")
+collect_neighbors("ip -6 neigh show 2>/dev/null", "Neighbor IPv6")
+
+for line in sys.exec("bridge fdb show br br-lan 2>/dev/null"):gmatch("[^\n]+") do
+    local mac, interface = line:match("^(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)%s+dev%s+(%S+)")
+    mac = normalize_mac(mac)
+    if mac ~= "" and not local_macs[mac] and not line:find(" self", 1, true) then
+        local device = get_device(mac, "")
+        device.interfaces[interface] = true
+        add_source(device, "Bridge FDB")
+    end
+end
+
+for line in sys.exec("brctl showmacs br-lan 2>/dev/null"):gmatch("[^\n]+") do
+    local mac = line:match("%s(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)%s")
+    mac = normalize_mac(mac)
+    if mac ~= "" and not local_macs[mac] then
+        add_source(get_device(mac, ""), "Bridge FDB")
+    end
+end
+
+local wifi_output = sys.exec("for p in /sys/class/net/wlan* /sys/class/net/ra*; do [ -d \"$p\" ] || continue; i=\"${p##*/}\"; echo \"@@@${i}\"; iwinfo \"$i\" assoclist 2>/dev/null; done")
+local wifi_interface = ""
+local wifi_count = 0
+for line in wifi_output:gmatch("[^\n]+") do
+    local marker = line:match("^@@@(.+)$")
+    if marker then
+        wifi_interface = marker
+    else
+        local mac = normalize_mac(line:match("(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)"))
+        if mac ~= "" then
+            local device = get_device(mac, "")
+            if wifi_interface ~= "" then device.interfaces[wifi_interface] = true end
+            add_source(device, "Wi-Fi")
+            wifi_count = wifi_count + 1
+        end
+    end
+end
+
+local device_list = {}
+local ip_devices = 0
+for _, device in pairs(devices) do
+    local has_ip = next(device.ips) ~= nil
+    if has_ip then ip_devices = ip_devices + 1 end
+    device_list[#device_list + 1] = device
+end
+
+local function first_ip(device)
+    local ips = {}
+    for ip in pairs(device.ips) do ips[#ips + 1] = ip end
+    table.sort(ips)
+    return ips[1] or ""
+end
+
+table.sort(device_list, function(a, b)
+    local aname = a.hostname ~= "" and a.hostname or first_ip(a) or a.mac
+    local bname = b.hostname ~= "" and b.hostname or first_ip(b) or b.mac
+    return string.lower(aname) < string.lower(bname)
+end)
+
+local function list_ips(device)
+    local values = {}
+    for ip in pairs(device.ips) do
+        local state = device.states[ip]
+        values[#values + 1] = state and state ~= "" and (ip .. " (" .. state .. ")") or ip
+    end
+    table.sort(values)
+    return #values > 0 and table.concat(values, "<br />") or "—"
+end
+
+local function list_set(values, fallback)
+    local list = {}
+    for value in pairs(values) do list[#list + 1] = value end
+    table.sort(list)
+    return #list > 0 and table.concat(list, ", ") or fallback
+end
+
+local function display_name(device)
+    if device.hostname ~= "" then return device.hostname end
+    return "Sem hostname"
+end
+%>
+
+<style type="text/css">
+.zld-toolbar { margin: 1em 0; }
+.zld-grid { display: flex; flex-wrap: wrap; gap: 1em; margin: 1em 0; }
+.zld-card { box-sizing: border-box; flex: 1 1 15em; min-width: 0; border: 1px solid #d8d8d8; background: #fff; padding: 1em; }
+.zld-card h3 { margin: 0 0 0.5em; font-size: 1em; color: #555; }
+.zld-value { font-size: 1.35em; font-weight: bold; }
+.zld-detail { color: #666; margin-top: 0.4em; }
+.zld-table-wrap { overflow-x: auto; }
+.zld-table { width: 100%; border-collapse: collapse; }
+.zld-table th, .zld-table td { padding: 0.55em; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.zld-note { padding: 0.8em; border: 1px solid #d8d8d8; background: #f7f7f7; }
+</style>
+
+<h2>Dispositivos locais</h2>
+<p>Inventário passivo da rede ligada ao roteador. Nenhuma varredura ou pacote adicional é enviado.</p>
+
+<div class="zld-toolbar">
+    <a class="cbi-button cbi-button-reload" href="<%=url('admin/services/zlan_devices')%>">Atualizar</a>
+</div>
+
+<div class="zld-note">
+    IPs estáticos aparecem após alguma comunicação com o roteador (ARP/neighbor cache). Um dispositivo estático e silencioso pode aparecer somente pelo MAC na bridge ou no Wi-Fi, sem IP conhecido.
+</div>
+
+<div class="zld-grid">
+    <div class="zld-card"><h3>Dispositivos vistos</h3><div class="zld-value"><%=#device_list%></div><div class="zld-detail">MACs únicos conhecidos</div></div>
+    <div class="zld-card"><h3>Com IP conhecido</h3><div class="zld-value"><%=ip_devices%></div><div class="zld-detail">DHCP, ARP ou neighbor cache</div></div>
+    <div class="zld-card"><h3>Leases DHCP</h3><div class="zld-value"><%=dhcp_count%></div><div class="zld-detail">Inclui hostname quando fornecido</div></div>
+    <div class="zld-card"><h3>Estações Wi-Fi</h3><div class="zld-value"><%=wifi_count%></div><div class="zld-detail">Associadas ao rádio do roteador</div></div>
+</div>
+
+<div class="cbi-section">
+    <h3>Inventário</h3>
+    <% if #device_list > 0 then %>
+    <div class="zld-table-wrap">
+        <table class="zld-table">
+            <thead><tr><th>Nome</th><th>MAC</th><th>IPs e estado</th><th>Interface</th><th>Fontes</th></tr></thead>
+            <tbody>
+            <% for _, device in ipairs(device_list) do %>
+                <tr>
+                    <td><%=esc(display_name(device))%></td>
+                    <td><%=esc(device.mac ~= "" and device.mac or "—")%></td>
+                    <td><%=list_ips(device)%></td>
+                    <td><%=esc(list_set(device.interfaces, "—"))%></td>
+                    <td><%=esc(list_set(device.sources, "—"))%></td>
+                </tr>
+            <% end %>
+            </tbody>
+        </table>
+    </div>
+    <% else %>
+        <p>Nenhum dispositivo foi observado ainda. Gere tráfego na LAN ou atualize depois de alguns segundos.</p>
+    <% end %>
+</div>
+
+<%+footer%>

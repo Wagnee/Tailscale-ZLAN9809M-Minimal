@@ -30,7 +30,7 @@ jobs:
           dash -n install.sh uninstall.sh tools/*.sh tests/*.sh rootfs/etc/init.d/* rootfs/etc/hotplug.d/iface/* rootfs/usr/bin/*
           ./tests/test-mwan3-failover.sh
           luac5.1 -p rootfs/usr/lib/lua/luci/controller/*.lua
-          python3 tests/check-luci-template.py rootfs/usr/lib/lua/luci/view/zlan_tailscale/status.htm
+          for view in rootfs/usr/lib/lua/luci/view/zlan_*/*.htm; do python3 tests/check-luci-template.py "$view"; done
       - name: Validate published trust chain
         run: |
           archive_sha="$(sed -n "s/^ARCHIVE_SHA256='\([^']*\)'/\1/p" install.sh)"
