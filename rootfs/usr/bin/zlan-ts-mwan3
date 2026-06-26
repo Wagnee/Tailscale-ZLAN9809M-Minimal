@@ -118,7 +118,7 @@ has_conflicting_rule() {
         [ -n "$line" ] || continue
         case "$line" in
             *"fwmark $MARK lookup "*)
-                table="${line##*fwmark $MARK lookup }"
+                table="${line##*fwmark "$MARK" lookup }"
                 valid_table "$table" || return 0
                 ;;
             *) return 0 ;;
