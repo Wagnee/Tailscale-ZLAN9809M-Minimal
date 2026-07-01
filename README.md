@@ -1,6 +1,6 @@
 # Tailscale ZLAN9809M Minimal
 
-Runtime exclusivo para transformar o ZLAN9809M em um subnet router Tailscale. Não instala telemetria, MQTT ou Modbus. A operação continua disponível por SSH/UCI e um menu LuCI somente leitura apresenta o estado do Tailscale.
+Runtime exclusivo para transformar o ZLAN9809M em um subnet router Tailscale. A operação continua disponível por SSH/UCI e um menu LuCI somente leitura apresenta o estado do Tailscale.
 
 O projeto usa o Tailscale oficial **v1.98.5**, compilado para `linux/mipsle` com soft-float. Daemon e CLI são binários separados e recebem somente as features necessárias para TUN, autenticação, iptables e anúncio de sub-redes.
 
